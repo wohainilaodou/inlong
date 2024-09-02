@@ -89,8 +89,8 @@ const Comp: React.FC<Props> = ({ inlongGroupId, inlongStreamId, ...modalProps })
     return;
   };
   const timestampSorter = (a, b) => {
-    const dateA = dayjs(a.dt, 'YYYY-MM-DD HH:mm:ss');
-    const dateB = dayjs(b.dt, 'YYYY-MM-DD HH:mm:ss');
+    const dateA = dayjs(a?.dt, 'YYYY-MM-DD HH:mm:ss');
+    const dateB = dayjs(b?.dt, 'YYYY-MM-DD HH:mm:ss');
     return dateA.isBefore(dateB) ? -1 : dateA.isAfter(dateB) ? 1 : 0;
   };
   const sortOrder: SortOrder = 'descend';
