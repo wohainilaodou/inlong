@@ -44,7 +44,7 @@ export interface RequestOptions extends FetchOptions {
 
 const extendRequest = extend({
   prefix: config.requestPrefix,
-  timeout: 60 * 1000,
+  timeout: 90 * 1000,
 });
 
 // eslint-disable-next-line react-hooks/rules-of-hooks
