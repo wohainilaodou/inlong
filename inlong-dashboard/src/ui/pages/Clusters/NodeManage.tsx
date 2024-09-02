@@ -109,13 +109,21 @@ const Comp: React.FC = () => {
         onOk: async () => {
           record.agentRestartTime = record?.agentRestartTime + 1;
           delete record.isInstall;
-          await request({
-            url: `/cluster/node/update`,
-            method: 'POST',
-            data: record,
-          });
+          try {
+            const response = await request({
+              url: `/cluster/node/update`,
+              method: 'POST',
+              data: record,
+            });
+            if (response.success) {
+              message.success(i18n.t('basic.OperatingSuccess'));
+            } else {
+              Modal.destroyAll();
+            }
+          } catch (e) {
+            Modal.destroyAll();
+          }
           await getList();
-          message.success(i18n.t('basic.OperatingSuccess'));
         },
       });
     },
@@ -126,16 +134,24 @@ const Comp: React.FC = () => {
       Modal.confirm({
         title: i18n.t('pages.Cluster.Node.InstallTitle'),
         onOk: async () => {
-          await request({
-            url: `/cluster/node/update`,
-            method: 'POST',
-            data: {
-              ...record,
-              isInstall: true,
-            },
-          });
+          try {
+            const response = await request({
+              url: `/cluster/node/update`,
+              method: 'POST',
+              data: {
+                ...record,
+                isInstall: true,
+              },
+            });
+            if (response.success) {
+              message.success(i18n.t('basic.OperatingSuccess'));
+            } else {
+              Modal.destroyAll();
+            }
+          } catch (e) {
+            Modal.destroyAll();
+          }
           await getList();
-          message.success(i18n.t('basic.OperatingSuccess'));
         },
       });
     },
