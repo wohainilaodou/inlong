@@ -18,6 +18,7 @@
 package org.apache.inlong.sdk.transform.decode;
 
 import org.apache.inlong.sdk.transform.pojo.PbSourceInfo;
+import org.apache.inlong.sdk.transform.process.Context;
 
 import com.google.protobuf.DescriptorProtos;
 import com.google.protobuf.Descriptors;
@@ -38,7 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * PbSourceDecoder
  * 
  */
-public class PbSourceDecoder implements SourceDecoder {
+public class PbSourceDecoder extends SourceDecoder<String> {
 
     private static final Logger LOG = LoggerFactory.getLogger(PbSourceDecoder.class);
 
@@ -89,13 +90,13 @@ public class PbSourceDecoder implements SourceDecoder {
     /**
      * decode
      * @param srcBytes
-     * @param extParams
+     * @param context
      * @return
      * @throws InvalidProtocolBufferException 
      */
     @SuppressWarnings("unchecked")
     @Override
-    public SourceData decode(byte[] srcBytes, Map<String, Object> extParams) {
+    public SourceData decode(byte[] srcBytes, Context context) {
         try {
             // decode
             DynamicMessage.Builder builder = DynamicMessage.newBuilder(rootDesc);
@@ -144,22 +145,15 @@ public class PbSourceDecoder implements SourceDecoder {
                     }
                 }
             }
-            return new PbSourceData(root, childRoot, rootDesc, childDesc, columnNodeMap, srcCharset);
+            return new PbSourceData(root, childRoot, rootDesc, childDesc, columnNodeMap, srcCharset, context);
         } catch (Exception e) {
             LOG.error(e.getMessage(), e);
             return null;
         }
     }
 
-    /**
-     * decode
-     * @param srcString
-     * @param extParams
-     * @return
-     */
-    @Override
-    public SourceData decode(String srcString, Map<String, Object> extParams) {
-        byte[] srcBytes = Base64.getDecoder().decode(srcString);
-        return this.decode(srcBytes, extParams);
+    public SourceData decode(String input, Context context) {
+        byte[] srcBytes = Base64.getDecoder().decode(input);
+        return decode(srcBytes, context);
     }
 }

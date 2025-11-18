@@ -32,6 +32,7 @@ import org.apache.inlong.manager.dao.entity.DataNodeEntity;
 import org.apache.inlong.manager.dao.entity.InlongStreamEntity;
 import org.apache.inlong.manager.dao.entity.StreamSinkEntity;
 import org.apache.inlong.manager.dao.mapper.DataNodeEntityMapper;
+import org.apache.inlong.manager.pojo.group.InlongGroupInfo;
 import org.apache.inlong.manager.pojo.node.DataNodeInfo;
 import org.apache.inlong.manager.pojo.node.cls.ClsDataNodeDTO;
 import org.apache.inlong.manager.pojo.node.cls.ClsDataNodeInfo;
@@ -43,9 +44,12 @@ import org.apache.inlong.manager.pojo.sink.cls.ClsSinkDTO;
 import org.apache.inlong.manager.pojo.sink.cls.ClsSinkRequest;
 import org.apache.inlong.manager.pojo.sort.util.FieldInfoUtils;
 import org.apache.inlong.manager.pojo.stream.InlongStreamExtParam;
+import org.apache.inlong.manager.pojo.stream.InlongStreamInfo;
+import org.apache.inlong.manager.service.resource.sink.cls.ClsOperator;
 import org.apache.inlong.manager.service.sink.AbstractSinkOperator;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -72,6 +76,8 @@ public class ClsSinkOperator extends AbstractSinkOperator {
     private ObjectMapper objectMapper;
     @Autowired
     private DataNodeEntityMapper dataNodeEntityMapper;
+    @Autowired
+    private ClsOperator clsOperator;
 
     @Override
     protected void setTargetEntity(SinkRequest request, StreamSinkEntity targetEntity) {
@@ -123,6 +129,17 @@ public class ClsSinkOperator extends AbstractSinkOperator {
         CommonBeanUtils.copyProperties(entity, sink, true);
         CommonBeanUtils.copyProperties(dto, sink, true);
         CommonBeanUtils.copyProperties(clsDataNodeDTO, sink, true);
+        if (StringUtils.isNotBlank(sink.getTopicId())) {
+            try {
+                String topicName =
+                        clsOperator.describeTopicNameByTopicId(sink.getTopicId(), clsDataNodeDTO.getLogSetId(),
+                                clsDataNodeDTO.getManageSecretId(), clsDataNodeDTO.getManageSecretKey(),
+                                clsDataNodeDTO.getRegion());
+                sink.setTopicName(topicName);
+            } catch (Exception e) {
+                LOGGER.error("get cls topic name failed for sinId={}, topicId={}", sink.getId(), sink.getTopicId(), e);
+            }
+        }
         List<SinkField> sinkFields = getSinkFields(entity.getId());
         sink.setSinkFieldList(sinkFields);
         return sink;
@@ -147,8 +164,12 @@ public class ClsSinkOperator extends AbstractSinkOperator {
     }
 
     @Override
-    public SinkConfig getSinkConfig(StreamSink sink) {
-        ClsSinkConfig sinkConfig = CommonBeanUtils.copyProperties(sink, ClsSinkConfig::new);
+    public SinkConfig getSinkConfig(InlongGroupInfo groupInfo, InlongStreamInfo streamInfo, StreamSink sink) {
+        ClsSink clsSink = (ClsSink) sink;
+        ClsSinkConfig sinkConfig = CommonBeanUtils.copyProperties(clsSink, ClsSinkConfig::new);
+        sinkConfig.setSeparator(String.valueOf((char) (Integer.parseInt(streamInfo.getDataSeparator()))));
+        sinkConfig.setFieldOffset(streamInfo.getExtendedFieldSize());
+        sinkConfig.setContentOffset(0);
         List<FieldConfig> fields = sinkFieldMapper.selectBySinkId(sink.getId()).stream().map(
                 v -> {
                     FieldConfig fieldConfig = new FieldConfig();

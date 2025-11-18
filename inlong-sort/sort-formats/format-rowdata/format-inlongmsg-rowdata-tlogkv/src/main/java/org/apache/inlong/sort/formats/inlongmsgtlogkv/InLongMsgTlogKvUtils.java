@@ -20,6 +20,8 @@ package org.apache.inlong.sort.formats.inlongmsgtlogkv;
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.FormatInfo;
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.RowFormatInfo;
 import org.apache.inlong.sort.formats.base.FieldToRowDataConverters.FieldToRowDataConverter;
+import org.apache.inlong.sort.formats.base.FormatMsg;
+import org.apache.inlong.sort.formats.inlongmsg.FailureHandler;
 import org.apache.inlong.sort.formats.inlongmsg.InLongMsgBody;
 import org.apache.inlong.sort.formats.inlongmsg.InLongMsgHead;
 
@@ -27,11 +29,13 @@ import org.apache.flink.table.data.GenericRowData;
 
 import java.nio.charset.Charset;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 import static org.apache.inlong.sort.formats.base.TableFormatUtils.deserializeBasicField;
+import static org.apache.inlong.sort.formats.base.TableFormatUtils.getFormatValueLength;
 import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.INLONGMSG_ATTR_TIME_DT;
 import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.INLONGMSG_ATTR_TIME_T;
 import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.getPredefinedFields;
@@ -69,14 +73,14 @@ public class InLongMsgTlogKvUtils {
         return new InLongMsgHead(attributes, null, time, predefinedFields);
     }
 
-    public static InLongMsgBody parseBody(
+    public static List<InLongMsgBody> parseBody(
             byte[] bytes,
             String charset,
             char delimiter,
             char entryDelimiter,
             char kvDelimiter,
             Character escapeChar,
-            Character quoteChar) {
+            Character quoteChar, Character lineDelimiter, boolean isDeleteEscapeChar) {
         String text;
         if (bytes[0] == delimiter) {
             text = new String(bytes, 1, bytes.length - 1, Charset.forName(charset));
@@ -87,15 +91,18 @@ public class InLongMsgTlogKvUtils {
         String[] segments = splitCsv(text, delimiter, escapeChar, quoteChar);
 
         String streamId = segments[0];
-
-        Map<String, String> entries;
+        List<InLongMsgBody> inLongMsgBodies = new ArrayList<>();
+        List<Map<String, String>> entries;
         if (segments.length > 1) {
-            entries = splitKv(segments[1], entryDelimiter, kvDelimiter, escapeChar, quoteChar);
+            entries = splitKv(segments[1], entryDelimiter, kvDelimiter, escapeChar, quoteChar,
+                    lineDelimiter, isDeleteEscapeChar);
+            for (Map<String, String> maps : entries) {
+                inLongMsgBodies.add(new InLongMsgBody(null, streamId, Collections.emptyList(), maps));
+            }
         } else {
-            entries = Collections.emptyMap();
+            inLongMsgBodies.add(new InLongMsgBody(null, streamId, Collections.emptyList(), Collections.emptyMap()));
         }
-
-        return new InLongMsgBody(bytes, streamId, Collections.emptyList(), entries);
+        return inLongMsgBodies;
     }
 
     /**
@@ -112,7 +119,8 @@ public class InLongMsgTlogKvUtils {
             String nullLiteral,
             List<String> predefinedFields,
             Map<String, String> entries,
-            FieldToRowDataConverter[] converters) {
+            FieldToRowDataConverter[] converters,
+            FailureHandler failureHandler) throws Exception {
         String[] fieldNames = rowFormatInfo.getFieldNames();
         FormatInfo[] fieldFormatInfos = rowFormatInfo.getFieldFormatInfos();
 
@@ -133,7 +141,7 @@ public class InLongMsgTlogKvUtils {
                             fieldName,
                             fieldFormatInfo,
                             fieldText,
-                            nullLiteral));
+                            nullLiteral, failureHandler));
             rowData.setField(i, field);
         }
 
@@ -146,11 +154,69 @@ public class InLongMsgTlogKvUtils {
                     fieldName,
                     fieldFormatInfo,
                     fieldText,
-                    nullLiteral));
+                    nullLiteral, failureHandler));
             rowData.setField(i, field);
         }
 
         return rowData;
+    }
+
+    /**
+     * Deserializes the row from the given entries.
+     *
+     * @param rowFormatInfo The format information of the row.
+     * @param nullLiteral The literal for null values.
+     * @param predefinedFields The predefined fields.
+     * @param entries The entries.
+     * @return The row FormatMsg from the given entries.
+     */
+    public static FormatMsg deserializeFormatMsgData(
+            RowFormatInfo rowFormatInfo,
+            String nullLiteral,
+            List<String> predefinedFields,
+            Map<String, String> entries,
+            FieldToRowDataConverter[] converters,
+            FailureHandler failureHandler) throws Exception {
+        String[] fieldNames = rowFormatInfo.getFieldNames();
+        FormatInfo[] fieldFormatInfos = rowFormatInfo.getFieldFormatInfos();
+
+        GenericRowData rowData = new GenericRowData(fieldNames.length);
+        long rowDataLength = 0L;
+        for (int i = 0; i < predefinedFields.size(); ++i) {
+
+            if (i >= fieldNames.length) {
+                break;
+            }
+
+            String fieldName = fieldNames[i];
+            FormatInfo fieldFormatInfo = fieldFormatInfos[i];
+            String fieldText = predefinedFields.get(i);
+            FieldToRowDataConverter converter = converters[i];
+            Object field = converter.convert(
+                    deserializeBasicField(
+                            fieldName,
+                            fieldFormatInfo,
+                            fieldText,
+                            nullLiteral, failureHandler));
+            rowData.setField(i, field);
+            rowDataLength += getFormatValueLength(fieldFormatInfos[i], fieldText);
+        }
+
+        for (int i = predefinedFields.size(); i < fieldNames.length; ++i) {
+            String fieldName = fieldNames[i];
+            FormatInfo fieldFormatInfo = fieldFormatInfos[i];
+            String fieldText = entries.get(fieldName);
+            FieldToRowDataConverter converter = converters[i];
+            Object field = converter.convert(deserializeBasicField(
+                    fieldName,
+                    fieldFormatInfo,
+                    fieldText,
+                    nullLiteral, failureHandler));
+            rowData.setField(i, field);
+            rowDataLength += getFormatValueLength(fieldFormatInfos[i], fieldText);
+        }
+
+        return new FormatMsg(rowData, rowDataLength);
     }
 
 }

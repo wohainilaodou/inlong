@@ -22,6 +22,7 @@ import (
 	"errors"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/apache/inlong/inlong-sdk/dataproxy-sdk-twins/dataproxy-sdk-golang/connpool"
 	"github.com/apache/inlong/inlong-sdk/dataproxy-sdk-twins/dataproxy-sdk-golang/discoverer"
@@ -38,6 +39,7 @@ var (
 	ErrInvalidURL        = errors.New("invalid URL")
 	ErrNoEndpoint        = errors.New("service has no endpoints")
 	ErrNoAvailableWorker = errors.New("no available worker")
+	ErrInvalidMessage    = errors.New("invalid message, GroupID/StreamID/Payload is empty or contains illegal characters")
 )
 
 // Client is the interface of a DataProxy client
@@ -91,7 +93,11 @@ func NewClient(opts ...Option) (Client, error) {
 
 func (c *client) initAll() error {
 	// the following initialization order must not be changed。
-	err := c.initDiscoverer()
+	err := c.initMetrics()
+	if err != nil {
+		return err
+	}
+	err = c.initDiscoverer()
 	if err != nil {
 		return err
 	}
@@ -107,10 +113,6 @@ func (c *client) initAll() error {
 	if err != nil {
 		return err
 	}
-	err = c.initMetrics()
-	if err != nil {
-		return err
-	}
 	err = c.initWorkers()
 	if err != nil {
 		return err
@@ -119,7 +121,7 @@ func (c *client) initAll() error {
 }
 
 func (c *client) initDiscoverer() error {
-	dis, err := NewDiscoverer(c.options.URL, c.options.GroupID, c.options.UpdateInterval, c.options.Logger)
+	dis, err := NewDiscoverer(c.options.URL, c.options.GroupID, c.options.UpdateInterval, c.options.Logger, c.options.Auth)
 	if err != nil {
 		return err
 	}
@@ -135,7 +137,8 @@ func (c *client) initNetClient() error {
 		gnet.WithWriteBufferCap(c.options.WriteBufferSize),
 		gnet.WithReadBufferCap(c.options.ReadBufferSize),
 		gnet.WithSocketSendBuffer(c.options.SocketSendBufferSize),
-		gnet.WithSocketRecvBuffer(c.options.SocketRecvBufferSize))
+		gnet.WithSocketRecvBuffer(c.options.SocketRecvBufferSize),
+		gnet.WithTCPKeepAlive(5*time.Minute))
 	if err != nil {
 		return err
 	}
@@ -162,11 +165,9 @@ func (c *client) initConns() error {
 		endpoints[i] = epList[i].Addr
 	}
 
-	// maximum connection number per endpoint is 3
-	connsPerEndpoint := c.options.WorkerNum/epLen + 1
-	connsPerEndpoint = int(math.Min(3, float64(connsPerEndpoint)))
-
-	pool, err := connpool.NewConnPool(endpoints, connsPerEndpoint, 512, c, c.log)
+	// minimum connection number per endpoint is 1
+	connsPerEndpoint := int(math.Ceil(float64(c.options.WorkerNum) * 1.2 / float64(epLen)))
+	pool, err := connpool.NewConnPool(endpoints, connsPerEndpoint, 2048, c, c.log, c.options.MaxConnLifetime)
 	if err != nil {
 		return err
 	}
@@ -176,7 +177,7 @@ func (c *client) initConns() error {
 }
 
 func (c *client) initFramer() error {
-	framer, err := framer.NewLengthField(framer.LengthFieldCfg{
+	fr, err := framer.NewLengthField(framer.LengthFieldCfg{
 		MaxFrameLen:  64 * 1024,
 		FieldOffset:  0,
 		FieldLength:  4,
@@ -186,7 +187,7 @@ func (c *client) initFramer() error {
 	if err != nil {
 		return err
 	}
-	c.framer = framer
+	c.framer = fr
 	return nil
 }
 
@@ -211,11 +212,16 @@ func (c *client) initWorkers() error {
 	return nil
 }
 
-func (c *client) Dial(addr string) (gnet.Conn, error) {
-	return c.netClient.Dial("tcp", addr)
+func (c *client) Dial(addr string, ctx any) (gnet.Conn, error) {
+	return c.netClient.DialContext("tcp", addr, ctx)
 }
 
 func (c *client) Send(ctx context.Context, msg Message) error {
+	if !msg.IsValid() {
+		c.log.Error("invalid message", ErrInvalidGroupID)
+		return ErrInvalidMessage
+	}
+
 	worker, err := c.getWorker()
 	if err != nil {
 		return ErrNoAvailableWorker
@@ -224,6 +230,14 @@ func (c *client) Send(ctx context.Context, msg Message) error {
 }
 
 func (c *client) SendAsync(ctx context.Context, msg Message, cb Callback) {
+	if !msg.IsValid() {
+		if cb != nil {
+			cb(msg, ErrInvalidMessage)
+		}
+		c.log.Error("invalid message", ErrInvalidGroupID)
+		return
+	}
+
 	worker, err := c.getWorker()
 	if err != nil {
 		if cb != nil {
@@ -259,6 +273,9 @@ func (c *client) Close() {
 		if c.netClient != nil {
 			_ = c.netClient.Stop()
 		}
+		if c.connPool != nil {
+			c.connPool.Close()
+		}
 	})
 }
 
@@ -289,10 +306,22 @@ func (c *client) OnOpen(conn gnet.Conn) ([]byte, gnet.Action) {
 }
 
 func (c *client) OnClose(conn gnet.Conn, err error) gnet.Action {
-	c.log.Warn("connection closed: ", conn.RemoteAddr(), ", err: ", err)
 	if err != nil {
+		c.log.Warn("connection closed: ", conn.RemoteAddr(), ", err: ", err)
 		c.metrics.incError(errConnClosedByPeer.strCode)
 	}
+
+	// delete this conn from conn pool
+	if c.connPool != nil {
+		c.connPool.OnConnClosed(conn, err)
+	}
+
+	if err != nil {
+		for _, w := range c.workers {
+			w.onConnClosed(conn, err)
+		}
+	}
+
 	return gnet.None
 }
 
@@ -301,16 +330,23 @@ func (c *client) OnTraffic(conn gnet.Conn) (action gnet.Action) {
 	for {
 		total := conn.InboundBuffered()
 		if total < heartbeatRspLen {
-			break
+			return gnet.None
 		}
 
-		buf, _ := conn.Peek(total)
+		buf, err := conn.Peek(total)
+		if err != nil {
+			c.metrics.incError(errConnReadFailed.getStrCode())
+			c.log.Error("read connection stream failed, close it, err:", err)
+			// read failed, close the connection
+			return gnet.Close
+		}
+
 		// if it is a heartbeat response, skip it and read the next package
 		if bytes.Equal(buf[:heartbeatRspLen], heartbeatRsp) {
-			_, err := conn.Discard(heartbeatRspLen)
+			_, err = conn.Discard(heartbeatRspLen)
 			if err != nil {
 				c.metrics.incError(errConnReadFailed.getStrCode())
-				c.log.Error("discard connection stream failed, err", err)
+				c.log.Error("discard connection stream failed, close it, err:", err)
 				// read failed, close the connection
 				return gnet.Close
 			}
@@ -320,30 +356,36 @@ func (c *client) OnTraffic(conn gnet.Conn) (action gnet.Action) {
 		}
 
 		length, payloadOffset, payloadOffsetEnd, err := c.framer.ReadFrame(buf)
-		if err == framer.ErrIncompleteFrame {
-			break
-		}
-
 		if err != nil {
+			if errors.Is(err, framer.ErrIncompleteFrame) {
+				return gnet.None
+			}
+
 			c.metrics.incError(errConnReadFailed.getStrCode())
 			c.log.Error("invalid packet from stream connection, close it, err:", err)
 			// read failed, close the connection
 			return gnet.Close
 		}
 
-		frame, _ := conn.Peek(length)
-		_, err = conn.Discard(length)
+		frame, err := conn.Peek(length)
 		if err != nil {
 			c.metrics.incError(errConnReadFailed.getStrCode())
-			c.log.Error("discard connection stream failed, err", err)
+			c.log.Error("read connection stream failed, close it, err:", err)
 			// read failed, close the connection
 			return gnet.Close
 		}
 
 		// handle response
 		c.onResponse(frame[payloadOffset:payloadOffsetEnd])
+
+		_, err = conn.Discard(length)
+		if err != nil {
+			c.metrics.incError(errConnReadFailed.getStrCode())
+			c.log.Error("discard connection stream failed, close it, err:", err)
+			// read failed, close the connection
+			return gnet.Close
+		}
 	}
-	return gnet.None
 }
 
 func (c *client) onResponse(frame []byte) {

@@ -18,24 +18,31 @@
 package org.apache.inlong.sort.standalone.sink.elasticsearch;
 
 import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.DataTypeConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.field.FieldConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.sink.EsSinkConfig;
+import org.apache.inlong.sort.standalone.config.pojo.IdConfig;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
+import lombok.extern.slf4j.Slf4j;
 
+import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@EqualsAndHashCode(callSuper = true)
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class EsIdConfig {
+@SuperBuilder
+@Slf4j
+public class EsIdConfig extends IdConfig {
 
     public static final String PATTERN_DAY = "{yyyyMMdd}";
     public static final String PATTERN_HOUR = "{yyyyMMddHH}";
@@ -62,14 +69,14 @@ public class EsIdConfig {
         }
     };
 
-    private String inlongGroupId;
-    private String inlongStreamId;
     private String separator = "|";
+    private DataTypeConfig dataTypeConfig;
     private String indexNamePattern;
     private String fieldNames;
     private int fieldOffset = 2; // for ftime,extinfo
     private int contentOffset = 0;// except for boss + tab(1)
     private List<String> fieldList;
+    private Charset charset;
 
     public static EsIdConfig create(DataFlowConfig dataFlowConfig) {
         EsSinkConfig sinkConfig = (EsSinkConfig) dataFlowConfig.getSinkConfig();
@@ -77,14 +84,25 @@ public class EsIdConfig {
                 .stream()
                 .map(FieldConfig::getName)
                 .collect(Collectors.toList());
+        Charset charset;
+        try {
+            charset = Charset.forName(sinkConfig.getEncodingType());
+        } catch (Throwable t) {
+            log.warn("do not support encoding type={}, dataflow id={}",
+                    sinkConfig.getEncodingType(), dataFlowConfig.getDataflowId());
+            charset = Charset.defaultCharset();
+        }
+
         return EsIdConfig.builder()
                 .inlongGroupId(dataFlowConfig.getInlongGroupId())
                 .inlongStreamId(dataFlowConfig.getInlongStreamId())
                 .contentOffset(sinkConfig.getContentOffset())
                 .fieldOffset(sinkConfig.getFieldOffset())
                 .separator(sinkConfig.getSeparator())
+                .dataTypeConfig(dataFlowConfig.getSourceConfig().getDataTypeConfig())
                 .indexNamePattern(sinkConfig.getIndexNamePattern())
                 .fieldList(fields)
+                .charset(charset)
                 .build();
     }
 

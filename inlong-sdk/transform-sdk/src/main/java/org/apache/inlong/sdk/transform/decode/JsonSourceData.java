@@ -17,6 +17,8 @@
 
 package org.apache.inlong.sdk.transform.decode;
 
+import org.apache.inlong.sdk.transform.process.Context;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -29,7 +31,7 @@ import java.util.List;
  * JsonSourceData
  * 
  */
-public class JsonSourceData implements SourceData {
+public class JsonSourceData extends AbstractSourceData {
 
     public static final String ROOT_KEY = "$root";
 
@@ -43,10 +45,12 @@ public class JsonSourceData implements SourceData {
      * Constructor
      * @param root
      * @param childRoot
+     * @param context
      */
-    public JsonSourceData(JsonObject root, JsonArray childRoot) {
+    public JsonSourceData(JsonObject root, JsonArray childRoot, Context context) {
         this.root = root;
         this.childRoot = childRoot;
+        this.context = context;
     }
 
     /**
@@ -71,6 +75,10 @@ public class JsonSourceData implements SourceData {
     @Override
     public String getField(int rowNum, String fieldName) {
         try {
+            if (isContextField(fieldName)) {
+                return getContextField(fieldName);
+            }
+            // split field name
             List<JsonNode> childNodes = new ArrayList<>();
             String[] nodeStrings = fieldName.split("\\.");
             for (String nodeString : nodeStrings) {
@@ -111,24 +119,41 @@ public class JsonSourceData implements SourceData {
                     // error data
                     return "";
                 }
+                // node is not array
                 if (!node.isArray()) {
                     current = newElement;
-                } else {
-                    if (!newElement.isJsonArray()) {
-                        // error data
-                        return "";
-                    }
-                    JsonArray newArray = newElement.getAsJsonArray();
-                    if (node.getArrayIndex() >= newArray.size()) {
-                        // error data
-                        return "";
-                    }
-                    current = newArray.get(node.getArrayIndex());
+                    continue;
+                }
+                // node is an array
+                current = getElementFromArray(node, newElement);
+                if (current == null) {
+                    // error data
+                    return "";
                 }
             }
             return current.getAsString();
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private JsonElement getElementFromArray(JsonNode node, JsonElement curElement) {
+        if (node.getArrayIndices().isEmpty()) {
+            // error data
+            return null;
+        }
+        for (int index : node.getArrayIndices()) {
+            if (!curElement.isJsonArray()) {
+                // error data
+                return null;
+            }
+            JsonArray newArray = curElement.getAsJsonArray();
+            if (index >= newArray.size()) {
+                // error data
+                return null;
+            }
+            curElement = newArray.get(index);
+        }
+        return curElement;
     }
 }

@@ -33,4 +33,8 @@ public class AgentConfigRequest {
 
     private String clusterName;
 
+    private String ip;
+
+    private String md5;
+
 }

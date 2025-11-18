@@ -20,9 +20,7 @@ package org.apache.inlong.agent.plugin.sources.file;
 import org.apache.inlong.agent.common.AgentThreadFactory;
 import org.apache.inlong.agent.conf.InstanceProfile;
 import org.apache.inlong.agent.conf.OffsetProfile;
-import org.apache.inlong.agent.conf.TaskProfile;
 import org.apache.inlong.agent.constant.CycleUnitType;
-import org.apache.inlong.agent.constant.TaskConstants;
 import org.apache.inlong.agent.core.task.MemoryManager;
 import org.apache.inlong.agent.core.task.OffsetManager;
 import org.apache.inlong.agent.message.DefaultMessage;
@@ -30,16 +28,15 @@ import org.apache.inlong.agent.metrics.AgentMetricItem;
 import org.apache.inlong.agent.metrics.AgentMetricItemSet;
 import org.apache.inlong.agent.metrics.audit.AuditUtils;
 import org.apache.inlong.agent.plugin.Message;
-import org.apache.inlong.agent.plugin.file.Reader;
 import org.apache.inlong.agent.plugin.file.Source;
-import org.apache.inlong.agent.plugin.sources.file.extend.ExtendedHandler;
+import org.apache.inlong.agent.plugin.sources.extend.ExtendedHandler;
 import org.apache.inlong.agent.utils.AgentUtils;
+import org.apache.inlong.agent.utils.ThreadUtils;
 import org.apache.inlong.common.metric.MetricRegister;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,13 +53,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.apache.inlong.agent.constant.CommonConstants.DEFAULT_PROXY_PACKAGE_MAX_SIZE;
-import static org.apache.inlong.agent.constant.CommonConstants.PROXY_KEY_DATA;
 import static org.apache.inlong.agent.constant.CommonConstants.PROXY_KEY_STREAM_ID;
 import static org.apache.inlong.agent.constant.CommonConstants.PROXY_PACKAGE_MAX_SIZE;
-import static org.apache.inlong.agent.constant.CommonConstants.PROXY_SEND_PARTITION_KEY;
 import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_GLOBAL_READER_QUEUE_PERMIT;
 import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_GLOBAL_READER_SOURCE_PERMIT;
-import static org.apache.inlong.agent.constant.TaskConstants.DEFAULT_FILE_SOURCE_EXTEND_CLASS;
 import static org.apache.inlong.agent.constant.TaskConstants.OFFSET;
 import static org.apache.inlong.agent.constant.TaskConstants.TASK_AUDIT_VERSION;
 import static org.apache.inlong.agent.constant.TaskConstants.TASK_CYCLE_UNIT;
@@ -86,8 +80,8 @@ public abstract class AbstractSource implements Source {
     protected final Integer BATCH_READ_LINE_COUNT = 10000;
     protected final Integer BATCH_READ_LINE_TOTAL_LEN = 1024 * 1024;
     protected final Integer CACHE_QUEUE_SIZE = 10 * BATCH_READ_LINE_COUNT;
-    protected final Integer READ_WAIT_TIMEOUT_MS = 10;
-    private final Integer EMPTY_CHECK_COUNT_AT_LEAST = 5 * 60;
+    protected final Integer WAIT_TIMEOUT_MS = 10;
+    private final Integer SOURCE_NO_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
     private final Integer CORE_THREAD_PRINT_INTERVAL_MS = 1000;
     protected BlockingQueue<SourceData> queue;
 
@@ -105,6 +99,7 @@ public abstract class AbstractSource implements Source {
     protected long auditVersion;
     protected String instanceId;
     protected InstanceProfile profile;
+    protected String extendClass;
     private ExtendedHandler extendedHandler;
     protected boolean isRealTime = false;
     protected volatile long emptyCount = 0;
@@ -115,6 +110,7 @@ public abstract class AbstractSource implements Source {
             new SynchronousQueue<>(),
             new AgentThreadFactory("source-pool"));
     protected OffsetProfile offsetProfile;
+    protected boolean sourceError = false;
 
     @Override
     public void init(InstanceProfile profile) {
@@ -136,6 +132,8 @@ public abstract class AbstractSource implements Source {
         initSource(profile);
     }
 
+    protected abstract void initExtendClass();
+
     protected abstract void initSource(InstanceProfile profile);
 
     protected void initOffset() {
@@ -155,6 +153,7 @@ public abstract class AbstractSource implements Source {
                 doRun();
             } catch (Throwable e) {
                 LOGGER.error("do run error maybe file deleted: ", e);
+                ThreadUtils.threadThrowableHandler(Thread.currentThread(), e);
             }
             running = false;
         };
@@ -167,14 +166,14 @@ public abstract class AbstractSource implements Source {
                 break;
             }
             List<SourceData> lines = readFromSource();
-            if (lines != null && lines.isEmpty()) {
+            if (lines == null || lines.isEmpty()) {
                 if (queue.isEmpty()) {
                     emptyCount++;
                 } else {
                     emptyCount = 0;
                 }
                 MemoryManager.getInstance().release(AGENT_GLOBAL_READER_SOURCE_PERMIT, BATCH_READ_LINE_TOTAL_LEN);
-                AgentUtils.silenceSleepInSeconds(1);
+                AgentUtils.silenceSleepInMs(WAIT_TIMEOUT_MS);
                 continue;
             }
             emptyCount = 0;
@@ -202,10 +201,16 @@ public abstract class AbstractSource implements Source {
      * @return true if prepared ok
      */
     private boolean prepareToRead() {
-        if (!doPrepareToRead()) {
+        try {
+            if (!doPrepareToRead()) {
+                return false;
+            }
+            return waitForPermit(AGENT_GLOBAL_READER_SOURCE_PERMIT, BATCH_READ_LINE_TOTAL_LEN);
+        } catch (Throwable e) {
+            LOGGER.error("prepare to read {} error:", instanceId, e);
+            sourceError = true;
             return false;
         }
-        return waitForPermit(AGENT_GLOBAL_READER_SOURCE_PERMIT, BATCH_READ_LINE_TOTAL_LEN);
     }
 
     /**
@@ -231,7 +236,7 @@ public abstract class AbstractSource implements Source {
                 if (!isRunnable()) {
                     return false;
                 }
-                AgentUtils.silenceSleepInSeconds(1);
+                AgentUtils.silenceSleepInMs(WAIT_TIMEOUT_MS);
             }
         }
         return true;
@@ -247,12 +252,12 @@ public abstract class AbstractSource implements Source {
         try {
             boolean offerSuc = false;
             while (isRunnable() && !offerSuc) {
-                offerSuc = queue.offer(sourceData, 1, TimeUnit.SECONDS);
+                offerSuc = queue.offer(sourceData, WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             }
             if (!offerSuc) {
                 MemoryManager.getInstance().release(AGENT_GLOBAL_READER_QUEUE_PERMIT, sourceData.getData().length);
             }
-            LOGGER.debug("Read {} from source {}", sourceData.getData(), inlongGroupId);
+            LOGGER.debug("Put in source queue {} {}", new String(sourceData.getData()), inlongGroupId);
         } catch (InterruptedException e) {
             MemoryManager.getInstance().release(AGENT_GLOBAL_READER_QUEUE_PERMIT, sourceData.getData().length);
             LOGGER.error("fetchData offer failed", e);
@@ -280,65 +285,84 @@ public abstract class AbstractSource implements Source {
     }
 
     private void initExtendHandler() {
-        if (DEFAULT_FILE_SOURCE_EXTEND_CLASS.compareTo(ExtendedHandler.class.getCanonicalName()) != 0) {
-            Constructor<?> constructor =
-                    null;
-            try {
-                constructor = Class.forName(
-                        profile.get(TaskConstants.FILE_SOURCE_EXTEND_CLASS, DEFAULT_FILE_SOURCE_EXTEND_CLASS))
-                        .getDeclaredConstructor(InstanceProfile.class);
-            } catch (NoSuchMethodException e) {
-                LOGGER.error("init {} NoSuchMethodException error", instanceId, e);
-            } catch (ClassNotFoundException e) {
-                LOGGER.error("init {} ClassNotFoundException error", instanceId, e);
-            }
-            constructor.setAccessible(true);
-            try {
-                extendedHandler = (ExtendedHandler) constructor.newInstance(profile);
-            } catch (InstantiationException e) {
-                LOGGER.error("init {} InstantiationException error", instanceId, e);
-            } catch (IllegalAccessException e) {
-                LOGGER.error("init {} IllegalAccessException error", instanceId, e);
-            } catch (InvocationTargetException e) {
-                LOGGER.error("init {} InvocationTargetException error", instanceId, e);
-            }
+        initExtendClass();
+        Constructor<?> constructor =
+                null;
+        try {
+            constructor = Class.forName(extendClass)
+                    .getDeclaredConstructor(InstanceProfile.class);
+        } catch (NoSuchMethodException e) {
+            LOGGER.error("init {} NoSuchMethodException error", instanceId, e);
+        } catch (ClassNotFoundException e) {
+            LOGGER.error("init {} ClassNotFoundException error", instanceId, e);
+        }
+        constructor.setAccessible(true);
+        try {
+            extendedHandler = (ExtendedHandler) constructor.newInstance(profile);
+        } catch (InstantiationException e) {
+            LOGGER.error("init {} InstantiationException error", instanceId, e);
+        } catch (IllegalAccessException e) {
+            LOGGER.error("init {} IllegalAccessException error", instanceId, e);
+        } catch (InvocationTargetException e) {
+            LOGGER.error("init {} InvocationTargetException error", instanceId, e);
         }
     }
 
     @Override
     public Message read() {
+        SourceData sourceData = readFromQueue();
+        while (sourceData != null) {
+            Message msg = createMessage(sourceData);
+            if (filterSourceData(msg)) {
+                long auditTime = 0;
+                if (isRealTime) {
+                    auditTime = AgentUtils.getCurrentTime();
+                } else {
+                    auditTime = profile.getSinkDataTime();
+                }
+                Map<String, String> header = msg.getHeader();
+                AuditUtils.add(AuditUtils.AUDIT_ID_AGENT_READ_SUCCESS, inlongGroupId, header.get(PROXY_KEY_STREAM_ID),
+                        auditTime, 1, sourceData.getData().length, auditVersion);
+                AuditUtils.add(AuditUtils.AUDIT_ID_AGENT_READ_SUCCESS_REAL_TIME, inlongGroupId,
+                        header.get(PROXY_KEY_STREAM_ID),
+                        AgentUtils.getCurrentTime(), 1, sourceData.getData().length, auditVersion);
+                return msg;
+            }
+            sourceData = readFromQueue();
+        }
+        return null;
+    }
+
+    private boolean filterSourceData(Message msg) {
+        if (extendedHandler != null) {
+            return extendedHandler.filterMessage(msg);
+        }
+        return true;
+    }
+
+    private SourceData readFromQueue() {
         SourceData sourceData = null;
         try {
-            sourceData = queue.poll(READ_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            sourceData = queue.poll(WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             LOGGER.warn("poll {} data get interrupted.", instanceId);
         }
         if (sourceData == null) {
+            LOGGER.debug("Read from source queue null {}", inlongGroupId);
             return null;
         }
+        LOGGER.debug("Read from source queue {} {}", new String(sourceData.getData()), inlongGroupId);
         MemoryManager.getInstance().release(AGENT_GLOBAL_READER_QUEUE_PERMIT, sourceData.getData().length);
-        return createMessage(sourceData);
+        return sourceData;
     }
 
     private Message createMessage(SourceData sourceData) {
-        String proxyPartitionKey = profile.get(PROXY_SEND_PARTITION_KEY, DigestUtils.md5Hex(inlongGroupId));
         Map<String, String> header = new HashMap<>();
-        header.put(PROXY_KEY_DATA, proxyPartitionKey);
         header.put(OFFSET, sourceData.getOffset());
         header.put(PROXY_KEY_STREAM_ID, inlongStreamId);
         if (extendedHandler != null) {
             extendedHandler.dealWithHeader(header, sourceData.getData());
         }
-        long auditTime = 0;
-        if (isRealTime) {
-            auditTime = AgentUtils.getCurrentTime();
-        } else {
-            auditTime = profile.getSinkDataTime();
-        }
-        AuditUtils.add(AuditUtils.AUDIT_ID_AGENT_READ_SUCCESS, inlongGroupId, header.get(PROXY_KEY_STREAM_ID),
-                auditTime, 1, sourceData.getData().length, auditVersion);
-        AuditUtils.add(AuditUtils.AUDIT_ID_AGENT_READ_SUCCESS_REAL_TIME, inlongGroupId, header.get(PROXY_KEY_STREAM_ID),
-                AgentUtils.getCurrentTime(), 1, sourceData.getData().length, auditVersion);
         Message finalMsg = new DefaultMessage(sourceData.getData(), header);
         // if the message size is greater than max pack size,should drop it.
         if (finalMsg.getBody().length > maxPackSize) {
@@ -386,7 +410,7 @@ public abstract class AbstractSource implements Source {
         while (queue != null && !queue.isEmpty()) {
             SourceData sourceData = null;
             try {
-                sourceData = queue.poll(READ_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                sourceData = queue.poll(WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 LOGGER.warn("poll {} data get interrupted.", instanceId, e);
             }
@@ -399,11 +423,25 @@ public abstract class AbstractSource implements Source {
 
     @Override
     public boolean sourceFinish() {
-        return emptyCount > EMPTY_CHECK_COUNT_AT_LEAST;
+        if (sourceError) {
+            return true;
+        }
+        if (isRealTime) {
+            return false;
+        }
+        if (emptyCount == 0) {
+            return false;
+        }
+        if (profile.isRetry()) {
+            return true;
+        }
+        if (AgentUtils.getCurrentTime() - getLastModifyTime() > SOURCE_NO_UPDATE_INTERVAL_MS) {
+            return true;
+        }
+        return false;
     }
 
-    @Override
-    public List<Reader> split(TaskProfile conf) {
-        return null;
+    public long getLastModifyTime() {
+        return 0;
     }
 }

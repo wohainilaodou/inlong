@@ -70,13 +70,7 @@ public class MySQLSensitiveUrlUtils {
                 resultUrl = URLDecoder.decode(resultUrl, "UTF-8");
             }
             resultUrl = resultUrl.replaceAll(InlongConstants.REGEX_WHITESPACE, InlongConstants.EMPTY);
-
-            for (String key : SENSITIVE_REPLACE_PARAM_MAP.keySet()) {
-                resultUrl = StringUtils.replaceIgnoreCase(resultUrl, key + InlongConstants.EQUAL + "true",
-                        InlongConstants.EMPTY);
-                resultUrl = StringUtils.replaceIgnoreCase(resultUrl, key + InlongConstants.EQUAL + "yes",
-                        InlongConstants.EMPTY);
-            }
+            resultUrl = filterSensitiveKeyByBracket(resultUrl);
             if (resultUrl.contains(InlongConstants.QUESTION_MARK)) {
                 StringBuilder builder = new StringBuilder();
                 builder.append(StringUtils.substringBefore(resultUrl, InlongConstants.QUESTION_MARK));
@@ -113,5 +107,47 @@ public class MySQLSensitiveUrlUtils {
             throw new BaseException(String.format("Failed to filter MySQL sensitive URL: %s, error: %s",
                     url, e.getMessage()));
         }
+    }
+
+    public static String filterSensitiveKeyByBracket(String url) {
+        if (!StringUtils.containsIgnoreCase(url, InlongConstants.LEFT_BRACKET)
+                || !StringUtils.containsIgnoreCase(url, InlongConstants.RIGHT_BRACKET)) {
+            return url;
+        }
+        StringBuilder builder = new StringBuilder();
+        String params;
+        while (StringUtils.containsIgnoreCase(url, InlongConstants.LEFT_BRACKET)
+                && StringUtils.containsIgnoreCase(url, InlongConstants.RIGHT_BRACKET)) {
+            int preIndex = url.indexOf(InlongConstants.LEFT_BRACKET);
+            int endIndex = url.indexOf(InlongConstants.RIGHT_BRACKET);
+            builder.append(url, 0, preIndex);
+            String temp = url.substring(preIndex + 1, endIndex);
+            List<String> paramList = new ArrayList<>();
+            for (String param : temp.split(InlongConstants.COMMA)) {
+                if (StringUtils.isBlank(param)) {
+                    continue;
+                }
+                String key = StringUtils.substringBefore(param, InlongConstants.EQUAL);
+                String value = StringUtils.substringAfter(param, InlongConstants.EQUAL);
+                if (SENSITIVE_REMOVE_PARAM_MAP.contains(key) || SENSITIVE_REPLACE_PARAM_MAP.containsKey(key)) {
+                    continue;
+                }
+                paramList.add(key + InlongConstants.EQUAL + value);
+            }
+            params = StringUtils.join(paramList, InlongConstants.COMMA);
+            builder.append(InlongConstants.LEFT_BRACKET)
+                    .append(params)
+                    .append(InlongConstants.RIGHT_BRACKET);
+            url = url.substring(endIndex + 1);
+        }
+        List<String> sensitiveParamList = new ArrayList<>();
+        SENSITIVE_REPLACE_PARAM_MAP
+                .forEach((key, value) -> sensitiveParamList.add(key + InlongConstants.EQUAL + value));
+        params = StringUtils.join(sensitiveParamList, InlongConstants.COMMA);
+        builder.append(InlongConstants.LEFT_BRACKET)
+                .append(params)
+                .append(InlongConstants.RIGHT_BRACKET)
+                .append(url);
+        return builder.toString();
     }
 }

@@ -18,104 +18,98 @@
 package org.apache.inlong.sort.standalone.sink;
 
 import org.apache.inlong.common.metric.MetricRegister;
+import org.apache.inlong.common.pojo.sort.TaskConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.SourceConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.DataTypeConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.field.FieldConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.field.format.BasicFormatInfo;
+import org.apache.inlong.common.pojo.sort.dataflow.field.format.FormatInfo;
 import org.apache.inlong.common.pojo.sortstandalone.SortTaskConfig;
+import org.apache.inlong.sdk.transform.decode.SourceDecoder;
+import org.apache.inlong.sdk.transform.pojo.FieldInfo;
+import org.apache.inlong.sdk.transform.pojo.TransformConfig;
+import org.apache.inlong.sdk.transform.process.converter.TypeConverter;
 import org.apache.inlong.sort.standalone.channel.ProfileEvent;
 import org.apache.inlong.sort.standalone.config.holder.CommonPropertiesHolder;
 import org.apache.inlong.sort.standalone.config.holder.SortClusterConfigHolder;
+import org.apache.inlong.sort.standalone.config.holder.v2.SortConfigHolder;
 import org.apache.inlong.sort.standalone.metrics.SortMetricItem;
 import org.apache.inlong.sort.standalone.metrics.SortMetricItemSet;
 import org.apache.inlong.sort.standalone.utils.BufferQueue;
 import org.apache.inlong.sort.standalone.utils.InlongLoggerFactory;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.gson.Gson;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flume.Channel;
 import org.apache.flume.Context;
 import org.slf4j.Logger;
 
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
-/**
- * 
- * SinkContext
- */
-@Deprecated
 public class SinkContext {
 
     public static final Logger LOG = InlongLoggerFactory.getLogger(SinkContext.class);
-
     public static final String KEY_MAX_THREADS = "maxThreads";
     public static final String KEY_PROCESSINTERVAL = "processInterval";
     public static final String KEY_RELOADINTERVAL = "reloadInterval";
     public static final String KEY_TASK_NAME = "taskName";
     public static final String KEY_MAX_BUFFERQUEUE_SIZE_KB = "maxBufferQueueSizeKb";
     public static final int DEFAULT_MAX_BUFFERQUEUE_SIZE_KB = 128 * 1024;
-
     protected final String clusterId;
     protected final String taskName;
     protected final String sinkName;
     protected final Context sinkContext;
-
+    protected Gson gson = new Gson();
+    protected TaskConfig taskConfig;
+    protected String taskConfigJson;
+    @Deprecated
     protected SortTaskConfig sortTaskConfig;
-
+    protected String sortTaskConfigJson;
     protected final Channel channel;
-    //
     protected final int maxThreads;
     protected final long processInterval;
     protected final long reloadInterval;
-    //
+    protected final boolean unifiedConfiguration;
     protected final SortMetricItemSet metricItemSet;
     protected Timer reloadTimer;
 
-    /**
-     * Constructor
-     * 
-     * @param sinkName
-     * @param context
-     * @param channel
-     */
     public SinkContext(String sinkName, Context context, Channel channel) {
         this.sinkName = sinkName;
         this.sinkContext = context;
         this.channel = channel;
-        this.clusterId = context.getString(CommonPropertiesHolder.KEY_CLUSTER_ID);
-        this.taskName = context.getString(KEY_TASK_NAME);
+        this.clusterId = sinkContext.getString(CommonPropertiesHolder.KEY_CLUSTER_ID);
+        this.taskName = sinkContext.getString(KEY_TASK_NAME);
         this.maxThreads = sinkContext.getInteger(KEY_MAX_THREADS, 10);
         this.processInterval = sinkContext.getInteger(KEY_PROCESSINTERVAL, 100);
         this.reloadInterval = sinkContext.getLong(KEY_RELOADINTERVAL, 60000L);
-        //
         this.metricItemSet = new SortMetricItemSet(sinkName);
+        this.unifiedConfiguration = CommonPropertiesHolder.useUnifiedConfiguration();
         MetricRegister.register(this.metricItemSet);
     }
 
-    /**
-     * start
-     */
     public void start() {
         try {
             this.reload();
             this.setReloadTimer();
         } catch (Exception e) {
-            LOG.error(e.getMessage(), e);
+            LOG.error("failed to start sink context", e);
         }
     }
 
-    /**
-     * close
-     */
     public void close() {
         try {
             this.reloadTimer.cancel();
         } catch (Exception e) {
-            LOG.error(e.getMessage(), e);
+            LOG.error("failed to close sink context", e);
         }
     }
 
-    /**
-     * setReloadTimer
-     */
     protected void setReloadTimer() {
         reloadTimer = new Timer(true);
         TimerTask task = new TimerTask() {
@@ -127,113 +121,73 @@ public class SinkContext {
         reloadTimer.schedule(task, new Date(System.currentTimeMillis() + reloadInterval), reloadInterval);
     }
 
-    /**
-     * reload
-     */
+    @SuppressWarnings("deprecation")
     public void reload() {
         try {
-            this.sortTaskConfig = SortClusterConfigHolder.getTaskConfig(taskName);
+            TaskConfig newTaskConfig = SortConfigHolder.getTaskConfig(taskName);
+            SortTaskConfig newSortTaskConfig = SortClusterConfigHolder.getTaskConfig(taskName);
+            this.replaceConfig(newTaskConfig, newSortTaskConfig);
         } catch (Throwable e) {
-            LOG.error(e.getMessage(), e);
+            LOG.error("failed to stop sink context", e);
         }
     }
 
-    /**
-     * get clusterId
-     * 
-     * @return the clusterId
-     */
+    @SuppressWarnings("deprecation")
+    protected void replaceConfig(TaskConfig newTaskConfig, SortTaskConfig newSortTaskConfig) {
+        this.taskConfig = newTaskConfig;
+        this.taskConfigJson = gson.toJson(newTaskConfig);
+        this.sortTaskConfig = newSortTaskConfig;
+        this.sortTaskConfigJson = gson.toJson(newSortTaskConfig);
+    }
+
     public String getClusterId() {
         return clusterId;
     }
 
-    /**
-     * get taskName
-     * 
-     * @return the taskName
-     */
     public String getTaskName() {
         return taskName;
     }
 
-    /**
-     * get sinkName
-     * 
-     * @return the sinkName
-     */
     public String getSinkName() {
         return sinkName;
     }
 
-    /**
-     * get sinkContext
-     * 
-     * @return the sinkContext
-     */
     public Context getSinkContext() {
         return sinkContext;
     }
 
-    /**
-     * get sortTaskConfig
-     * 
-     * @return the sortTaskConfig
-     */
+    public TaskConfig getTaskConfig() {
+        return taskConfig;
+    }
+
     public SortTaskConfig getSortTaskConfig() {
         return sortTaskConfig;
     }
 
-    /**
-     * get channel
-     * 
-     * @return the channel
-     */
+    public boolean isUnifiedConfiguration() {
+        return unifiedConfiguration;
+    }
+
     public Channel getChannel() {
         return channel;
     }
 
-    /**
-     * get maxThreads
-     * 
-     * @return the maxThreads
-     */
     public int getMaxThreads() {
         return maxThreads;
     }
 
-    /**
-     * get processInterval
-     * 
-     * @return the processInterval
-     */
     public long getProcessInterval() {
         return processInterval;
     }
 
-    /**
-     * get reloadInterval
-     * 
-     * @return the reloadInterval
-     */
     public long getReloadInterval() {
         return reloadInterval;
     }
 
-    /**
-     * get metricItemSet
-     * 
-     * @return the metricItemSet
-     */
     public SortMetricItemSet getMetricItemSet() {
         return metricItemSet;
     }
 
-    /**
-     * fillInlongId
-     *
-     * @param currentRecord
-     * @param dimensions
-     */
     public static void fillInlongId(ProfileEvent currentRecord, Map<String, String> dimensions) {
         String inlongGroupId = currentRecord.getInlongGroupId();
         inlongGroupId = (StringUtils.isBlank(inlongGroupId)) ? "-" : inlongGroupId;
@@ -243,14 +197,44 @@ public class SinkContext {
         dimensions.put(SortMetricItem.KEY_INLONG_STREAM_ID, inlongStreamId);
     }
 
-    /**
-     * createBufferQueue
-     * @return
-     */
     public static <U> BufferQueue<U> createBufferQueue() {
         int maxBufferQueueSizeKb = CommonPropertiesHolder.getInteger(KEY_MAX_BUFFERQUEUE_SIZE_KB,
                 DEFAULT_MAX_BUFFERQUEUE_SIZE_KB);
         BufferQueue<U> dispatchQueue = new BufferQueue<>(maxBufferQueueSizeKb);
         return dispatchQueue;
+    }
+
+    public TransformConfig createTransformConfig(DataFlowConfig dataFlowConfig) {
+        return new TransformConfig(dataFlowConfig.getTransformSql(), globalConfiguration());
+    }
+
+    public Map<String, Object> globalConfiguration() {
+        Map<String, Object> globalConfiguration = new HashMap<>();
+        globalConfiguration.putAll(CommonPropertiesHolder.get());
+        globalConfiguration.putAll(sinkContext.getParameters());
+        return ImmutableMap.copyOf(globalConfiguration);
+    }
+
+    public SourceDecoder<String> createSourceDecoder(SourceConfig sourceConfig) {
+        DataTypeConfig dataTypeConfig = sourceConfig.getDataTypeConfig();
+        String dataTypeClass = dataTypeConfig.getClass().getSimpleName();
+        IDecoderBuilder builder = DecoderBuilderHolder.getBuilder(dataTypeClass);
+        SourceDecoder<String> decoder = builder.createSourceDecoder(sourceConfig);
+        if (decoder == null) {
+            throw new IllegalArgumentException("do not support data type=" + dataTypeConfig.getClass().getName());
+        }
+        return decoder;
+    }
+
+    public FieldInfo convertToTransformFieldInfo(FieldConfig config) {
+        return new FieldInfo(config.getName(), deriveTypeConverter(config.getFormatInfo()));
+    }
+
+    public TypeConverter deriveTypeConverter(FormatInfo formatInfo) {
+
+        if (formatInfo instanceof BasicFormatInfo) {
+            return value -> ((BasicFormatInfo<?>) formatInfo).deserialize(value);
+        }
+        return value -> value;
     }
 }

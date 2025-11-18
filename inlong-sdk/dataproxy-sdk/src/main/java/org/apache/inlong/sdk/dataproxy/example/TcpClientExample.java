@@ -17,91 +17,81 @@
 
 package org.apache.inlong.sdk.dataproxy.example;
 
-import org.apache.inlong.common.constant.ProtocolType;
-import org.apache.inlong.sdk.dataproxy.DefaultMessageSender;
-import org.apache.inlong.sdk.dataproxy.ProxyClientConfig;
-import org.apache.inlong.sdk.dataproxy.common.SendResult;
+import org.apache.inlong.common.msg.MsgType;
+import org.apache.inlong.sdk.dataproxy.MsgSenderFactory;
+import org.apache.inlong.sdk.dataproxy.MsgSenderSingleFactory;
+import org.apache.inlong.sdk.dataproxy.common.ProcessResult;
+import org.apache.inlong.sdk.dataproxy.sender.tcp.TcpEventInfo;
+import org.apache.inlong.sdk.dataproxy.sender.tcp.TcpMsgSender;
+import org.apache.inlong.sdk.dataproxy.sender.tcp.TcpMsgSenderConfig;
 
-import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.UnsupportedEncodingException;
-import java.util.concurrent.TimeUnit;
+import java.nio.charset.StandardCharsets;
 
 public class TcpClientExample {
 
     private static final Logger logger = LoggerFactory.getLogger(TcpClientExample.class);
-
-    public static String localIP = "127.0.0.1";
 
     /**
      * Example of client tcp.
      */
     public static void main(String[] args) throws InterruptedException {
 
-        String inlongGroupId = "test_test";
-        String inlongStreamId = "test_test";
-
-        /*
-         * 1. if isLocalVisit is true, will get dataproxy server info from local file in
-         * ${configBasePath}/${inlongGroupId}.local file
-         *
-         * for example: /data/inlong/config/test_test.local and file context like this:
-         * {"isInterVisit":1,"clusterId":"1","size":1,"switch":1,"address":[{"host":"127.0.0.1",
-         * "port":"46802"},{"host":"127.0.0.1","port":"46802"}]} 2. if isLocalVisit is false, will get dataproxy server
-         * info from manager so we must ensure that the manager server url is configured correctly!
-         */
-        String configBasePath = "/data/inlong/config";
-
+        String inlongGroupId = "test_group_id";
+        String inlongStreamId = "test_stream_id";
+        String configBasePath = "";
         String inLongManagerAddr = "127.0.0.1";
-        String inLongManagerPort = "8000";
-
-        /*
-         * It is recommended to use type 7. For others, please refer to the official related documents
-         */
-        int msgType = 7;
+        String inLongManagerPort = "8083";
+        int msgType = 7; // default report type
         String messageBody = "inglong-message-random-body!";
 
+        // build sender factory
+        MsgSenderSingleFactory senderFactory = new MsgSenderSingleFactory();
+        // build sender object
         TcpClientExample tcpClientExample = new TcpClientExample();
-        DefaultMessageSender sender = tcpClientExample
-                .getMessageSender(localIP, inLongManagerAddr, inLongManagerPort,
-                        inlongGroupId, false, false, configBasePath, msgType);
-        tcpClientExample.sendTcpMessage(sender, inlongGroupId, inlongStreamId,
-                messageBody, System.currentTimeMillis());
+        TcpMsgSender sender = tcpClientExample.getMessageSender(senderFactory, false,
+                inLongManagerAddr, inLongManagerPort, inlongGroupId, msgType, false, configBasePath);
+        // send message
+        tcpClientExample.sendTcpMessage(sender,
+                inlongGroupId, inlongStreamId, System.currentTimeMillis(), messageBody);
+        // close all senders
+        senderFactory.shutdownAll();
     }
 
-    public DefaultMessageSender getMessageSender(String localIP, String inLongManagerAddr, String inLongManagerPort,
-            String inlongGroupId, boolean isLocalVisit, boolean isReadProxyIPFromLocal,
-            String configBasePath, int msgType) {
-        ProxyClientConfig dataProxyConfig = null;
-        DefaultMessageSender messageSender = null;
+    public TcpMsgSender getMessageSender(MsgSenderFactory senderFactory, boolean visitMgrByHttps,
+            String managerAddr, String managerPort, String inlongGroupId, int msgType,
+            boolean useLocalMetaConfig, String configBasePath) {
+        TcpMsgSender messageSender = null;
         try {
-            dataProxyConfig = new ProxyClientConfig(localIP, isLocalVisit, inLongManagerAddr,
-                    Integer.valueOf(inLongManagerPort), inlongGroupId, "test", "123456");
-            if (StringUtils.isNotEmpty(configBasePath)) {
-                dataProxyConfig.setConfStoreBasePath(configBasePath);
-            }
-            dataProxyConfig.setReadProxyIPFromLocal(isReadProxyIPFromLocal);
-            dataProxyConfig.setProtocolType(ProtocolType.TCP);
-            messageSender = DefaultMessageSender.generateSenderByClusterId(dataProxyConfig);
-            messageSender.setMsgtype(msgType);
-        } catch (Exception e) {
-            logger.error("getMessageSender has exception e = {}", e);
+            // build sender configure
+            TcpMsgSenderConfig tcpConfig =
+                    new TcpMsgSenderConfig(visitMgrByHttps, managerAddr,
+                            Integer.parseInt(managerPort), inlongGroupId, "admin", "inlong");
+            tcpConfig.setMetaStoreBasePath(configBasePath);
+            tcpConfig.setOnlyUseLocalProxyConfig(useLocalMetaConfig);
+            tcpConfig.setSdkMsgType(MsgType.valueOf(msgType));
+            tcpConfig.setRequestTimeoutMs(20000L);
+            // build sender object
+            messageSender = senderFactory.genTcpSenderByClusterId(tcpConfig);
+        } catch (Throwable ex) {
+            System.out.println("Get MessageSender throw exception, " + ex);
         }
         return messageSender;
     }
 
-    public void sendTcpMessage(DefaultMessageSender sender, String inlongGroupId,
-            String inlongStreamId, String messageBody, long dt) {
-        SendResult result = null;
+    public void sendTcpMessage(TcpMsgSender sender,
+            String inlongGroupId, String inlongStreamId, long dt, String messageBody) {
+        ProcessResult procResult = new ProcessResult();
         try {
-            result = sender.sendMessage(messageBody.getBytes("utf8"), inlongGroupId, inlongStreamId,
-                    0, String.valueOf(dt), 20, TimeUnit.SECONDS);
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            sender.sendMessage(new TcpEventInfo(inlongGroupId, inlongStreamId,
+                    dt, null, messageBody.getBytes(StandardCharsets.UTF_8)), procResult);
+        } catch (Throwable ex) {
+            System.out.println("Message sent throw exception, " + ex);
+            return;
         }
-        logger.info("messageSender {}", result);
+        System.out.println("Message sent result = " + procResult);
+        logger.info("Message sent result = {}", procResult);
     }
-
 }

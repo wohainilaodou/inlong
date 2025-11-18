@@ -130,10 +130,15 @@ const Comp: React.FC = () => {
         name: 'lastConsumeStatus',
         label: i18n.t('pages.ConsumeDashboard.config.OperatingStatus'),
         initialValue: defaultValues.lastConsumeStatus,
+        visible: false,
         props: {
           allowClear: true,
           options: lastConsumerStatusList,
           dropdownMatchSelectWidth: false,
+          showSearch: true,
+          filterOption: (keyword: string, option: { label: any }) => {
+            return (option?.label ?? '').toLowerCase().includes(keyword.toLowerCase());
+          },
         },
       },
       {
@@ -145,6 +150,10 @@ const Comp: React.FC = () => {
           allowClear: true,
           options: consumes.filter(x => x.value),
           dropdownMatchSelectWidth: false,
+          showSearch: true,
+          filterOption: (keyword: string, option: { label: any }) => {
+            return (option?.label ?? '').toLowerCase().includes(keyword.toLowerCase());
+          },
         },
       },
     ],

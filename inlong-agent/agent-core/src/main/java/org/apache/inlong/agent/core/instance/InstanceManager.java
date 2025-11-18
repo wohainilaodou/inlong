@@ -22,6 +22,8 @@ import org.apache.inlong.agent.common.AgentThreadFactory;
 import org.apache.inlong.agent.conf.AgentConfiguration;
 import org.apache.inlong.agent.conf.InstanceProfile;
 import org.apache.inlong.agent.conf.TaskProfile;
+import org.apache.inlong.agent.constant.AgentConstants;
+import org.apache.inlong.agent.core.task.TaskManager;
 import org.apache.inlong.agent.metrics.audit.AuditUtils;
 import org.apache.inlong.agent.plugin.Instance;
 import org.apache.inlong.agent.store.InstanceStore;
@@ -56,7 +58,9 @@ public class InstanceManager extends AbstractDaemon {
     public volatile int CORE_THREAD_SLEEP_TIME_MS = 1000;
     public static final int INSTANCE_PRINT_INTERVAL_MS = 10000;
     public static final long INSTANCE_KEEP_ALIVE_MS = 5 * 60 * 1000;
+    public static final long KEEP_PACE_INTERVAL_MS = 60 * 1000;
     private long lastPrintTime = 0;
+    private long lastTraverseTime = 0;
     // instance in instance store
     private final InstanceStore instanceStore;
     private TaskStore taskStore;
@@ -65,8 +69,9 @@ public class InstanceManager extends AbstractDaemon {
     private final ConcurrentHashMap<String, Instance> instanceMap;
     // instance profile queue.
     private final BlockingQueue<InstanceAction> actionQueue;
+    private final BlockingQueue<InstanceAction> addActionQueue;
     // task thread pool;
-    private static final ThreadPoolExecutor EXECUTOR_SERVICE = new ThreadPoolExecutor(
+    private final ThreadPoolExecutor EXECUTOR_SERVICE = new ThreadPoolExecutor(
             0, Integer.MAX_VALUE,
             1L, TimeUnit.SECONDS,
             new SynchronousQueue<>(),
@@ -76,9 +81,10 @@ public class InstanceManager extends AbstractDaemon {
     private final AgentConfiguration agentConf;
     private final String taskId;
     private long auditVersion;
-    private volatile boolean runAtLeastOneTime = false;
     private volatile boolean running = false;
     private final double reserveCoefficient = 0.8;
+    protected TaskManager taskManager;
+    private final int globalInstanceLimit;
 
     private class InstancePrintStat {
 
@@ -116,7 +122,9 @@ public class InstanceManager extends AbstractDaemon {
     /**
      * Init task manager.
      */
-    public InstanceManager(String taskId, int instanceLimit, Store basicStore, TaskStore taskStore) {
+    public InstanceManager(TaskManager taskManager, String taskId, int instanceLimit, Store basicStore,
+            TaskStore taskStore) {
+        this.taskManager = taskManager;
         this.taskId = taskId;
         instanceStore = new InstanceStore(basicStore);
         this.taskStore = taskStore;
@@ -124,6 +132,9 @@ public class InstanceManager extends AbstractDaemon {
         instanceMap = new ConcurrentHashMap<>();
         this.instanceLimit = instanceLimit;
         actionQueue = new LinkedBlockingQueue<>(ACTION_QUEUE_CAPACITY);
+        addActionQueue = new LinkedBlockingQueue<>(ACTION_QUEUE_CAPACITY);
+        globalInstanceLimit = agentConf.getInt(AgentConstants.AGENT_INSTANCE_LIMIT,
+                AgentConstants.DEFAULT_AGENT_INSTANCE_LIMIT);
     }
 
     public String getTaskId() {
@@ -146,6 +157,9 @@ public class InstanceManager extends AbstractDaemon {
         if (action == null) {
             return false;
         }
+        if (action.getActionType() == ActionType.ADD && isFull()) {
+            return false;
+        }
         return actionQueue.offer(action);
     }
 
@@ -159,11 +173,16 @@ public class InstanceManager extends AbstractDaemon {
             Thread.currentThread().setName("instance-manager-core-" + taskId);
             running = true;
             while (isRunnable()) {
+                long currentTime = AgentUtils.getCurrentTime();
                 try {
                     AgentUtils.silenceSleepInMs(CORE_THREAD_SLEEP_TIME_MS);
                     printInstanceState();
-                    dealWithActionQueue(actionQueue);
-                    keepPaceWithStore();
+                    dealWithActionQueue();
+                    dealWithAddActionQueue();
+                    if (currentTime - lastTraverseTime > KEEP_PACE_INTERVAL_MS) {
+                        keepPaceWithStore();
+                        lastTraverseTime = currentTime;
+                    }
                     String inlongGroupId = taskFromStore.getInlongGroupId();
                     String inlongStreamId = taskFromStore.getInlongStreamId();
                     AuditUtils.add(AuditUtils.AUDIT_ID_AGENT_INSTANCE_MGR_HEARTBEAT, inlongGroupId, inlongStreamId,
@@ -172,7 +191,6 @@ public class InstanceManager extends AbstractDaemon {
                     LOGGER.error("coreThread error: ", ex);
                     ThreadUtils.threadThrowableHandler(Thread.currentThread(), ex);
                 }
-                runAtLeastOneTime = true;
             }
             running = false;
         };
@@ -250,16 +268,18 @@ public class InstanceManager extends AbstractDaemon {
         });
     }
 
-    private void dealWithActionQueue(BlockingQueue<InstanceAction> queue) {
+    private void dealWithActionQueue() {
         while (isRunnable()) {
             try {
-                InstanceAction action = queue.poll();
+                InstanceAction action = actionQueue.poll();
                 if (action == null) {
                     break;
                 }
                 switch (action.getActionType()) {
                     case ADD:
-                        addInstance(action.getProfile());
+                        if (!addActionQueue.offer(action)) {
+                            LOGGER.error("it should never happen: addQueue is full");
+                        }
                         break;
                     case FINISH:
                         finishInstance(action.getProfile());
@@ -275,6 +295,24 @@ public class InstanceManager extends AbstractDaemon {
                 LOGGER.error("dealWithActionQueue", ex);
                 ThreadUtils.threadThrowableHandler(Thread.currentThread(), ex);
             }
+        }
+    }
+
+    private void dealWithAddActionQueue() {
+        while (isRunnable()) {
+            if (taskManager != null && taskManager.getInstanceNum() > globalInstanceLimit) {
+                LOGGER.error("global instance num {} over limit {}", taskManager.getInstanceNum(), globalInstanceLimit);
+                return;
+            }
+            if (instanceMap.size() > instanceLimit) {
+                LOGGER.error("task {} instanceMap size {} over limit {}", taskId, instanceMap.size(), instanceLimit);
+                return;
+            }
+            InstanceAction action = addActionQueue.poll();
+            if (action == null) {
+                break;
+            }
+            addInstance(action.getProfile());
         }
     }
 
@@ -316,10 +354,6 @@ public class InstanceManager extends AbstractDaemon {
     }
 
     private void addInstance(InstanceProfile profile) {
-        if (instanceMap.size() >= instanceLimit) {
-            LOGGER.error("instanceMap size {} over limit {}", instanceMap.size(), instanceLimit);
-            return;
-        }
         LOGGER.info("add instance taskId {} instanceId {}", taskId, profile.getInstanceId());
         if (!shouldAddAgain(profile.getInstanceId(), profile.getFileUpdateTime())) {
             LOGGER.info("addInstance shouldAddAgain returns false skip taskId {} instanceId {}", taskId,
@@ -346,6 +380,11 @@ public class InstanceManager extends AbstractDaemon {
 
     private void deleteFromStore(String instanceId) {
         InstanceProfile profile = instanceStore.getInstance(taskId, instanceId);
+        if (profile == null) {
+            LOGGER.error("try to delete instance from store but not found: taskId {} instanceId {}", taskId,
+                    instanceId);
+            return;
+        }
         String inlongGroupId = profile.getInlongGroupId();
         String inlongStreamId = profile.getInlongStreamId();
         instanceStore.deleteInstance(taskId, instanceId);
@@ -369,6 +408,15 @@ public class InstanceManager extends AbstractDaemon {
         LOGGER.info("delete instance from memory: taskId {} instanceId {}", taskId, instance.getInstanceId());
         AuditUtils.add(AuditUtils.AUDIT_ID_AGENT_DEL_INSTANCE_MEM, inlongGroupId, inlongStreamId,
                 instance.getProfile().getSinkDataTime(), 1, 1, auditVersion);
+    }
+
+    private void notifyDestroyInstance(String instanceId) {
+        Instance instance = instanceMap.get(instanceId);
+        if (instance == null) {
+            LOGGER.error("try to notify destroy instance but not found: taskId {} instanceId {}", taskId, instanceId);
+            return;
+        }
+        instance.notifyDestroy();
     }
 
     private void addToStore(InstanceProfile profile, boolean addNew) {
@@ -400,6 +448,10 @@ public class InstanceManager extends AbstractDaemon {
         }
         LOGGER.info("instanceProfile {}", instanceProfile.toJsonStr());
         try {
+            if (taskManager != null && taskManager.getInstanceNum() > globalInstanceLimit) {
+                LOGGER.error("global instance num {} over limit {}", taskManager.getInstanceNum(), globalInstanceLimit);
+                return;
+            }
             if (instanceMap.size() > instanceLimit) {
                 LOGGER.info("add instance to memory refused because instanceMap size over limit {}",
                         instanceProfile.getInstanceId());
@@ -424,11 +476,14 @@ public class InstanceManager extends AbstractDaemon {
                         instanceProfile.getSinkDataTime(), 1, 1, auditVersion);
             }
         } catch (Throwable t) {
-            LOGGER.error("add instance error {}", t.getMessage());
+            LOGGER.error("add instance error.", t);
         }
     }
 
     private void stopAllInstances() {
+        instanceMap.values().forEach((instance) -> {
+            notifyDestroyInstance(instance.getInstanceId());
+        });
         instanceMap.values().forEach((instance) -> {
             deleteFromMemory(instance.getInstanceId());
         });
@@ -455,26 +510,22 @@ public class InstanceManager extends AbstractDaemon {
     }
 
     public boolean isFull() {
-        return (instanceMap.size() + actionQueue.size()) >= instanceLimit * reserveCoefficient;
+        return (actionQueue.size() + addActionQueue.size()) >= ACTION_QUEUE_CAPACITY * reserveCoefficient;
     }
 
-    public boolean allInstanceFinished() {
-        if (!runAtLeastOneTime) {
-            return false;
-        }
-        if (!instanceMap.isEmpty()) {
-            return false;
-        }
-        if (!actionQueue.isEmpty()) {
-            return false;
-        }
+    public long getFinishedInstanceCount() {
+        int count = 0;
         List<InstanceProfile> instances = instanceStore.getInstances(taskId);
         for (int i = 0; i < instances.size(); i++) {
-            InstanceProfile profile = instances.get(i);
-            if (profile.getState() != InstanceStateEnum.FINISHED) {
-                return false;
+            if (instances.get(i).getState() == InstanceStateEnum.FINISHED) {
+                count++;
             }
         }
-        return true;
+        return count;
+    }
+
+    public int getInstanceNum() {
+
+        return instanceMap.size();
     }
 }

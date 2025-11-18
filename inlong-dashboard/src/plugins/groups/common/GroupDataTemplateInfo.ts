@@ -53,11 +53,36 @@ export class GroupDataTemplateInfo implements DataWithBackend, RenderRow, Render
     },
   })
   @ColumnDecorator()
-  @I18n('pages.GroupDataTemplate.InChargers')
+  @I18n('pages.GroupDataTemplate.InCharges')
   inCharges: string;
 
   @FieldDecorator({
     type: 'select',
+    initialValue: 'ALL',
+    props: values => ({
+      options: [
+        {
+          label: i18n.t('pages.GroupDataTemplate.VisibleRange.All'),
+          value: 'ALL',
+        },
+        {
+          label: i18n.t('pages.GroupDataTemplate.VisibleRange.InCharges'),
+          value: 'IN_CHARGE',
+        },
+        {
+          label: i18n.t('pages.GroupDataTemplate.VisibleRange.Tenant'),
+          value: 'TENANT',
+        },
+      ],
+    }),
+    rules: [{ required: true }],
+  })
+  @I18n('pages.GroupDataTemplate.VisibleRange')
+  visibleRange: String;
+
+  @FieldDecorator({
+    type: 'select',
+    hidden: true,
     props: {
       mode: 'multiple',
       filterOption: true,
@@ -96,18 +121,11 @@ export class GroupDataTemplateInfo implements DataWithBackend, RenderRow, Render
   @FieldDecorator({
     type: 'input',
     initialValue: 0,
+    hidden: true,
     rules: [{ required: true }],
   })
   @I18n('pages.GroupDataTemplate.Version')
   version: number;
-
-  @FieldDecorator({
-    type: 'input',
-    initialValue: '',
-    rules: [{ required: true }],
-  })
-  @I18n('pages.GroupDataTemplate.VisibleRange')
-  visibleRange: String;
 
   @FieldDecorator({
     type: EditableTable,

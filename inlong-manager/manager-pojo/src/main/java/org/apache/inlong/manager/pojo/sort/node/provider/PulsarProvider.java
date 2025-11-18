@@ -17,6 +17,7 @@
 
 package org.apache.inlong.manager.pojo.sort.node.provider;
 
+import org.apache.inlong.common.enums.MessageWrapType;
 import org.apache.inlong.common.enums.MetaField;
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.LongFormatInfo;
 import org.apache.inlong.manager.common.consts.SourceType;
@@ -30,11 +31,13 @@ import org.apache.inlong.sort.protocol.node.ExtractNode;
 import org.apache.inlong.sort.protocol.node.extract.PulsarExtractNode;
 import org.apache.inlong.sort.protocol.node.format.Format;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -63,11 +66,15 @@ public class PulsarProvider implements ExtractNodeProvider {
                 pulsarSource.getDataEscapeChar(),
                 pulsarSource.getIgnoreParseError());
 
-        PulsarScanStartupMode startupMode = PulsarScanStartupMode.forName(pulsarSource.getScanStartupMode());
+        String startupMode =
+                StringUtils.isNotBlank(pulsarSource.getScanStartupMode()) ? PulsarScanStartupMode.forName(
+                        pulsarSource.getScanStartupMode()).getValue() : null;
         final String primaryKey = pulsarSource.getPrimaryKey();
         final String serviceUrl = pulsarSource.getServiceUrl();
         final String adminUrl = pulsarSource.getAdminUrl();
-        final String scanStartupSubStartOffset = null;
+        final String scanStartupSubStartOffset =
+                StringUtils.isNotBlank(pulsarSource.getSubscription()) ? PulsarScanStartupMode.EARLIEST.getValue()
+                        : null;
 
         return new PulsarExtractNode(pulsarSource.getSourceName(),
                 pulsarSource.getSourceName(),
@@ -78,7 +85,7 @@ public class PulsarProvider implements ExtractNodeProvider {
                 adminUrl,
                 serviceUrl,
                 format,
-                startupMode.getValue(),
+                startupMode,
                 primaryKey,
                 pulsarSource.getSubscription(),
                 scanStartupSubStartOffset,
@@ -102,5 +109,25 @@ public class PulsarProvider implements ExtractNodeProvider {
         List<FieldInfo> fieldInfos = new ArrayList<>();
         fieldInfos.add(0, new FieldInfo(MetaField.AUDIT_DATA_TIME.name(), new LongFormatInfo()));
         return fieldInfos;
+    }
+
+    @Override
+    public boolean needInlongPropertiesField(StreamNode streamNode) {
+        if (streamNode instanceof PulsarSource) {
+            PulsarSource pulsarSource = (PulsarSource) streamNode;
+            return !Objects.equals(pulsarSource.getWrapType(), MessageWrapType.RAW.getName());
+        }
+        return true;
+    }
+
+    @Override
+    public List<StreamField> addInlongPropertiesFieldForStream(List<StreamField> streamFields) {
+        List<String> fieldNames = streamFields.stream().map(StreamField::getFieldName).collect(Collectors.toList());
+        if (!fieldNames.contains(MetaField.INLONG_PROPERTIES.name())) {
+            streamFields.add(0,
+                    new StreamField(0, "map", MetaField.INLONG_PROPERTIES.name(), "inlong properties", null, 1,
+                            MetaField.INLONG_PROPERTIES.name()));
+        }
+        return streamFields;
     }
 }

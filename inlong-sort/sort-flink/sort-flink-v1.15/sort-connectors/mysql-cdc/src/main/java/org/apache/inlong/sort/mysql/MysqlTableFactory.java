@@ -17,6 +17,7 @@
 
 package org.apache.inlong.sort.mysql;
 
+import org.apache.inlong.sort.base.Constants;
 import org.apache.inlong.sort.base.metric.MetricOption;
 
 import com.ververica.cdc.connectors.mysql.source.config.MySqlSourceOptions;
@@ -69,6 +70,7 @@ public class MysqlTableFactory implements DynamicTableSourceFactory {
         final String username = config.get(USERNAME);
         final String password = config.get(PASSWORD);
         final String databaseName = config.get(DATABASE_NAME);
+        final Boolean enableLogReport = context.getConfiguration().get(Constants.ENABLE_LOG_REPORT);
         validateRegex(DATABASE_NAME.key(), databaseName);
         final String tableName = config.get(TABLE_NAME);
         validateRegex(TABLE_NAME.key(), tableName);
@@ -102,9 +104,11 @@ public class MysqlTableFactory implements DynamicTableSourceFactory {
         String inlongMetric = config.getOptional(INLONG_METRIC).orElse(null);
         String auditHostAndPorts = config.get(INLONG_AUDIT);
         String auditKeys = config.get(AUDIT_KEYS);
+        String changelogKeys = config.get(CHANGELOG_AUDIT_KEYS);
         MetricOption metricOption = MetricOption.builder()
                 .withInlongLabels(inlongMetric)
                 .withAuditAddress(auditHostAndPorts)
+                .withChangelogAuditKeys(changelogKeys)
                 .withAuditKeys(auditKeys)
                 .build();
 
@@ -129,6 +133,7 @@ public class MysqlTableFactory implements DynamicTableSourceFactory {
                 distributionFactorLower,
                 startupOptions,
                 scanNewlyAddedTableEnabled,
+                enableLogReport,
                 getJdbcProperties(context.getCatalogTable().getOptions()),
                 heartbeatInterval,
                 chunkKeyColumn,
@@ -174,6 +179,7 @@ public class MysqlTableFactory implements DynamicTableSourceFactory {
         options.add(INLONG_AUDIT);
         options.add(ROW_KINDS_FILTERED);
         options.add(AUDIT_KEYS);
+        options.add(CHANGELOG_AUDIT_KEYS);
         options.add(GH_OST_DDL_CHANGE);
         options.add(GH_OST_TABLE_REGEX);
         options.add(CHUNK_KEY_COLUMN);
@@ -337,7 +343,6 @@ public class MysqlTableFactory implements DynamicTableSourceFactory {
                             + "\"-U\" represents UPDATE_BEFORE.\n"
                             + "\"+U\" represents UPDATE_AFTER.\n"
                             + "\"-D\" represents DELETE.");
-
     // ----------------------------------------------------------------------------
     // experimental options, won't add them to documentation
     // ----------------------------------------------------------------------------
@@ -545,5 +550,11 @@ public class MysqlTableFactory implements DynamicTableSourceFactory {
                     .stringType()
                     .defaultValue("")
                     .withDescription("Audit keys for metrics collecting");
+
+    public static final ConfigOption<String> CHANGELOG_AUDIT_KEYS =
+            ConfigOptions.key("metrics.changelog.audit.key")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("Audit keys for changelog metrics collecting");
 
 }

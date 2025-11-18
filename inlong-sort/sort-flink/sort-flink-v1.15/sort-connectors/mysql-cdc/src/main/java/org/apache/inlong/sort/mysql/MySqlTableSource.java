@@ -19,9 +19,9 @@ package org.apache.inlong.sort.mysql;
 
 import org.apache.inlong.sort.base.metric.MetricOption;
 import org.apache.inlong.sort.mysql.source.MySqlSource;
+import org.apache.inlong.sort.mysql.table.MySqlReadableMetadata;
 
 import com.ververica.cdc.connectors.mysql.table.MySqlDeserializationConverterFactory;
-import com.ververica.cdc.connectors.mysql.table.MySqlReadableMetadata;
 import com.ververica.cdc.connectors.mysql.table.StartupOptions;
 import com.ververica.cdc.debezium.DebeziumDeserializationSchema;
 import com.ververica.cdc.debezium.DebeziumSourceFunction;
@@ -86,6 +86,7 @@ public class MySqlTableSource implements ScanTableSource, SupportsReadingMetadat
     private final Properties jdbcProperties;
     private final Duration heartbeatInterval;
     private final String chunkKeyColumn;
+    private final boolean enableLogReport;
 
     // --------------------------------------------------------------------------------------------
     // Mutable attributes
@@ -121,6 +122,7 @@ public class MySqlTableSource implements ScanTableSource, SupportsReadingMetadat
             double distributionFactorLower,
             StartupOptions startupOptions,
             boolean scanNewlyAddedTableEnabled,
+            boolean enableLogReport,
             Properties jdbcProperties,
             Duration heartbeatInterval,
             @Nullable String chunkKeyColumn,
@@ -136,6 +138,7 @@ public class MySqlTableSource implements ScanTableSource, SupportsReadingMetadat
         this.serverTimeZone = serverTimeZone;
         this.dbzProperties = dbzProperties;
         this.enableParallelRead = enableParallelRead;
+        this.enableLogReport = enableLogReport;
         this.splitSize = splitSize;
         this.splitMetaGroupSize = splitMetaGroupSize;
         this.fetchSize = fetchSize;
@@ -206,6 +209,7 @@ public class MySqlTableSource implements ScanTableSource, SupportsReadingMetadat
                             .startupOptions(startupOptions)
                             .deserializer(deserializer)
                             .scanNewlyAddedTableEnabled(scanNewlyAddedTableEnabled)
+                            .enableLogReport(enableLogReport)
                             .jdbcProperties(jdbcProperties)
                             .heartbeatInterval(heartbeatInterval)
                             .chunkKeyColumn(chunkKeyColumn)
@@ -285,6 +289,7 @@ public class MySqlTableSource implements ScanTableSource, SupportsReadingMetadat
                         distributionFactorLower,
                         startupOptions,
                         scanNewlyAddedTableEnabled,
+                        enableLogReport,
                         jdbcProperties,
                         heartbeatInterval,
                         chunkKeyColumn,
@@ -311,6 +316,7 @@ public class MySqlTableSource implements ScanTableSource, SupportsReadingMetadat
                 && distributionFactorUpper == that.distributionFactorUpper
                 && distributionFactorLower == that.distributionFactorLower
                 && scanNewlyAddedTableEnabled == that.scanNewlyAddedTableEnabled
+                && enableLogReport == that.enableLogReport
                 && Objects.equals(physicalSchema, that.physicalSchema)
                 && Objects.equals(hostname, that.hostname)
                 && Objects.equals(database, that.database)
@@ -358,6 +364,7 @@ public class MySqlTableSource implements ScanTableSource, SupportsReadingMetadat
                 producedDataType,
                 metadataKeys,
                 scanNewlyAddedTableEnabled,
+                enableLogReport,
                 jdbcProperties,
                 heartbeatInterval,
                 chunkKeyColumn,

@@ -18,9 +18,11 @@
 package org.apache.inlong.agent.core.task;
 
 import org.apache.inlong.agent.common.AbstractDaemon;
+import org.apache.inlong.agent.conf.AgentConfiguration;
 import org.apache.inlong.agent.conf.InstanceProfile;
 import org.apache.inlong.agent.conf.OffsetProfile;
 import org.apache.inlong.agent.conf.TaskProfile;
+import org.apache.inlong.agent.constant.AgentConstants;
 import org.apache.inlong.agent.constant.CycleUnitType;
 import org.apache.inlong.agent.metrics.audit.AuditUtils;
 import org.apache.inlong.agent.store.InstanceStore;
@@ -50,8 +52,8 @@ public class OffsetManager extends AbstractDaemon {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OffsetManager.class);
     public static final int CORE_THREAD_SLEEP_TIME = 60 * 1000;
-    public static final int CLEAN_INSTANCE_ONCE_LIMIT = 100;
-    public static final String DB_INSTANCE_EXPIRE_CYCLE_COUNT = "3";
+    public static final int CLEAN_INSTANCE_ONCE_LIMIT = 1000;
+    public static final long SEVEN_DAY_TIMEOUT_INTERVAL_MS = 7 * 24 * 3600 * 1000;
     private static volatile OffsetManager offsetManager = null;
     private final OffsetStore offsetStore;
     private final InstanceStore instanceStore;
@@ -106,9 +108,6 @@ public class OffsetManager extends AbstractDaemon {
      * get taskPositionManager singleton
      */
     public static OffsetManager getInstance() {
-        if (offsetManager == null) {
-            throw new RuntimeException("task position manager has not been initialized by agentManager");
-        }
         return offsetManager;
     }
 
@@ -149,9 +148,6 @@ public class OffsetManager extends AbstractDaemon {
             InstanceProfile instanceFromDb = iterator.next();
             String taskId = instanceFromDb.getTaskId();
             String instanceId = instanceFromDb.getInstanceId();
-            if (instanceFromDb.getState() != InstanceStateEnum.FINISHED) {
-                continue;
-            }
             TaskProfile taskFromDb = taskStore.getTask(taskId);
             if (taskFromDb != null) {
                 if (taskFromDb.getCycleUnit().compareToIgnoreCase(CycleUnitType.REAL_TIME) == 0) {
@@ -167,8 +163,9 @@ public class OffsetManager extends AbstractDaemon {
                     }
                 }
             }
-            long expireTime = DateTransUtils.calcOffset(
-                    DB_INSTANCE_EXPIRE_CYCLE_COUNT + instanceFromDb.getCycleUnit());
+            long expireTime =
+                    Math.abs(getScanCycleRange(instanceFromDb.getCycleUnit())) + AgentConfiguration.getAgentConf()
+                            .getLong(AgentConstants.AGENT_OFFSET_TTL, SEVEN_DAY_TIMEOUT_INTERVAL_MS);
             if (AgentUtils.getCurrentTime() - instanceFromDb.getModifyTime() > expireTime) {
                 cleanCount.getAndIncrement();
                 LOGGER.info("instance has expired, delete from instance store dataTime {} taskId {} instanceId {}",
@@ -182,6 +179,10 @@ public class OffsetManager extends AbstractDaemon {
         }
     }
 
+    public int getRunningInstanceCount() {
+        return instanceStore.getRunningInstanceCount();
+    }
+
     @Override
     public void start() throws Exception {
         submitWorker(coreThread());
@@ -190,5 +191,27 @@ public class OffsetManager extends AbstractDaemon {
     @Override
     public void stop() throws Exception {
 
+    }
+
+    public static long getScanCycleRange(String cycleUnit) {
+        if (AgentConfiguration.getAgentConf().hasKey(AgentConstants.AGENT_SCAN_RANGE)) {
+            String range = AgentConfiguration.getAgentConf().get(AgentConstants.AGENT_SCAN_RANGE);
+            return DateTransUtils.calcOffset(range + cycleUnit);
+        }
+        switch (cycleUnit) {
+            case AgentUtils.DAY: {
+                return DateTransUtils.calcOffset(AgentConstants.DEFAULT_AGENT_SCAN_RANGE_DAY + cycleUnit);
+            }
+            case AgentUtils.HOUR:
+            case AgentUtils.HOUR_LOW_CASE: {
+                return DateTransUtils.calcOffset(AgentConstants.DEFAULT_AGENT_SCAN_RANGE_HOUR + cycleUnit);
+            }
+            case AgentUtils.MINUTE: {
+                return DateTransUtils.calcOffset(AgentConstants.DEFAULT_AGENT_SCAN_RANGE_MINUTE + cycleUnit);
+            }
+            default: {
+                return DateTransUtils.calcOffset(AgentConstants.DEFAULT_AGENT_SCAN_RANGE + cycleUnit);
+            }
+        }
     }
 }

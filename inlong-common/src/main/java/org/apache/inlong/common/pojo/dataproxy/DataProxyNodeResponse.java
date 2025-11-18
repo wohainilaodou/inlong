@@ -30,7 +30,6 @@ public class DataProxyNodeResponse {
     /**
      * DataProxy cluster id
      */
-    @Deprecated
     private Integer clusterId;
 
     private String reportSourceType;
@@ -49,6 +48,11 @@ public class DataProxyNodeResponse {
      * Load of the DataProxy cluster, default is 20
      */
     private Integer load = 20;
+
+    /**
+     * Node max packet length
+     */
+    private Integer maxPacketLength;
 
     /**
      * List of the cluster node

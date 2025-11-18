@@ -17,17 +17,27 @@
 
 package org.apache.inlong.sdk.dataproxy.config;
 
+import org.apache.commons.lang3.builder.ToStringBuilder;
+
 import java.util.Map;
 
 public class ProxyConfigEntry implements java.io.Serializable {
 
     private int clusterId;
     private String groupId;
-    private int size;
     private Map<String, HostInfo> hostMap;
     private int load;
     private int switchStat;
     private boolean isInterVisit;
+    private int maxPacketLength;
+
+    public int getMaxPacketLength() {
+        return maxPacketLength;
+    }
+
+    public void setMaxPacketLength(int maxPacketLength) {
+        this.maxPacketLength = maxPacketLength;
+    }
 
     public int getLoad() {
         return load;
@@ -50,16 +60,15 @@ public class ProxyConfigEntry implements java.io.Serializable {
     }
 
     public void setHostMap(Map<String, HostInfo> hostMap) {
-        this.size = hostMap.size();
         this.hostMap = hostMap;
     }
 
-    public int getSize() {
-        return size;
+    public boolean isNodesEmpty() {
+        return this.hostMap.isEmpty();
     }
 
-    public void setSize(int size) {
-        this.size = size;
+    public int getSize() {
+        return hostMap.size();
     }
 
     public String getGroupId() {
@@ -78,17 +87,24 @@ public class ProxyConfigEntry implements java.io.Serializable {
         isInterVisit = interVisit;
     }
 
-    @Override
-    public String toString() {
-        return "ProxyConfigEntry [hostMap=" + hostMap + ", load=" + load + ", size=" + size + ", isInterVisit="
-                + isInterVisit + ", groupId=" + groupId + ", switch=" + switchStat + "]";
-    }
-
     public int getClusterId() {
         return clusterId;
     }
 
     public void setClusterId(int clusterId) {
         this.clusterId = clusterId;
+    }
+
+    @Override
+    public String toString() {
+        return new ToStringBuilder(this)
+                .append("clusterId", clusterId)
+                .append("groupId", groupId)
+                .append("hostMap", hostMap)
+                .append("load", load)
+                .append("switchStat", switchStat)
+                .append("isInterVisit", isInterVisit)
+                .append("maxPacketLength", maxPacketLength)
+                .toString();
     }
 }

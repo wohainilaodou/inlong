@@ -35,12 +35,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.apache.inlong.sort.formats.base.TableFormatUtils.deserializeBasicField;
-import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.INLONGMSG_ATTR_TIME_DT;
-import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.INLONGMSG_ATTR_TIME_T;
-import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.getPredefinedFields;
-import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.parseAttr;
-import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.parseDateTime;
-import static org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils.parseEpochTime;
+import static org.apache.inlong.sort.formats.inlongmsg.row.InLongMsgUtils.INLONGMSG_ATTR_TIME_DT;
+import static org.apache.inlong.sort.formats.inlongmsg.row.InLongMsgUtils.INLONGMSG_ATTR_TIME_T;
+import static org.apache.inlong.sort.formats.inlongmsg.row.InLongMsgUtils.getPredefinedFields;
+import static org.apache.inlong.sort.formats.inlongmsg.row.InLongMsgUtils.parseAttr;
+import static org.apache.inlong.sort.formats.inlongmsg.row.InLongMsgUtils.parseDateTime;
+import static org.apache.inlong.sort.formats.inlongmsg.row.InLongMsgUtils.parseEpochTime;
 import static org.apache.inlong.sort.formats.util.StringUtils.splitCsv;
 
 /**
@@ -110,7 +110,7 @@ public class InLongMsgTlogCsvUtils {
             RowFormatInfo rowFormatInfo,
             String nullLiteral,
             List<String> predefinedFields,
-            List<String> fields) {
+            List<String> fields) throws Exception {
         String[] fieldNames = rowFormatInfo.getFieldNames();
         FormatInfo[] fieldFormatInfos = rowFormatInfo.getFieldFormatInfos();
 
@@ -138,7 +138,7 @@ public class InLongMsgTlogCsvUtils {
                             fieldName,
                             fieldFormatInfo,
                             fieldText,
-                            nullLiteral);
+                            nullLiteral, null);
             row.setField(i, field);
         }
 
@@ -158,7 +158,7 @@ public class InLongMsgTlogCsvUtils {
                             fieldName,
                             fieldFormatInfo,
                             fieldText,
-                            nullLiteral);
+                            nullLiteral, null);
             row.setField(i + predefinedFields.size(), field);
         }
 

@@ -21,7 +21,7 @@
     <parent>
         <groupId>org.apache.inlong</groupId>
         <artifactId>sort-connectors-v1.13</artifactId>
-        <version>1.13.0-SNAPSHOT</version>
+        <version>2.4.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>sort-connector-redis</artifactId>
@@ -140,6 +140,7 @@
                         </goals>
                         <phase>package</phase>
                         <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <filters>
                                 <filter>
                                     <artifact>org.apache.inlong:sort-connector-*</artifact>
@@ -148,6 +149,12 @@
                                         <include>META-INF/services/org.apache.flink.table.factories.Factory</include>
                                         <include>META-INF/services/org.apache.flink.streaming.connectors.redis.common.hanlder.RedisHandler</include>
                                     </includes>
+                                </filter>
+                                <filter>
+                                    <artifact>com.fasterxml.jackson.core:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/versions/**</exclude>
+                                    </excludes>
                                 </filter>
                             </filters>
                         </configuration>

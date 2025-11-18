@@ -30,14 +30,52 @@ dataproxy-sdk cpp version, used for sending data to dataproxy
 * curl
 * rapidjson
 * asio
+* log4cplus
 
 ## Build
 
-Go to the dataproxy-sdk-cpp root, and run
+There are two ways to build dataproxy-sdk-cpp:
 
-```
+### Method 1: Native Build
+
+Go to the `dataproxy-sdk-cpp` directory, and run:
+
+```bash
+./build_third_party.sh
 ./build.sh
 ```
+
+### Method 2: Docker Build
+
+**Prerequisites for Docker build:**
+- Docker installed on your system
+
+This method uses a pre-configured Docker environment with all necessary dependencies.
+
+Go to the `dataproxy-sdk-cpp` directory, and run:
+
+1. Build the Docker image:
+```bash
+docker build -f docker/Dockerfile -t inlong/dataproxy-cpp-compile .
+```
+
+2. Run the build:
+```bash
+docker run -v $(pwd):/dataproxy-sdk-cpp inlong/dataproxy-cpp-compile
+```
+
+Alternatively, you can navigate to the docker directory and build from there:
+
+```bash
+cd docker
+docker build -t inlong/dataproxy-cpp-compile .
+cd ..
+docker run -v $(pwd):/dataproxy-sdk-cpp inlong/dataproxy-cpp-compile
+```
+
+Build artifacts will be available in the `build/` and `release/` subdirectories.
+
+For more details about Docker build, see [docker/README-Docker.md](docker/README-Docker.md).
 
 ## Config Parameters
 
@@ -74,24 +112,24 @@ Refer to `release/conf/config_example.json`.
 
 1. First, init dataproxy-sdk, there are two ways you can choose:
 
-- A) `int32_t tc_api_init(const char* config_file)`. Here, `config_file` is the path of your config file, and absolute
+- A) `int32_t InitApi(const char* config_file)`. Here, `config_file` is the path of your config file, and absolute
   path is recommended. Note that only once called is needed in one process.
-- B) `int32_t tc_api_init(ClientConfig& client_config)`. Here, `client_config` is the pointer of a `ClientConfig`
-  object.
 
 2. Then, send
-   data: `int32_t tc_api_send(const char* inlong_group_id, const char* inlong_stream_id, const char* msg, int32_t msg_len, UserCallBack call_back = NULL)`.
+   data: `int32_t Send(const char* inlong_group_id, const char* inlong_stream_id, const char* msg, int32_t msg_len, UserCallBack call_back = NULL)`.
    If you set `call_back`, it will be callbacked if your data failed to send. See the signature of `UserCallBack`
-   in `release/inc/user_msg.h`.
+   in `src/core/sdk_msg.h`.
 
-3. Finally, close sdk if no more data to be sent: `int32_t tc_api_close(int32_t max_waitms)`. Here, `max_waitms` is the
+3. Finally, close sdk if no more data to be sent: `int32_t CloseApi(int32_t max_waitms)`. Here, `max_waitms` is the
    interval of waiting data in memory to be sent.
 
-4. Note, the above functions return 0 if success, otherwise it means failure. As for other return results, please refer
-   to `SDKInvalidResult` in `release/inc/tc_api.h`.
+4. Note, the above functions return 0 if success, otherwise it m
+
+5. eans failure. As for other return results, please refer
+   to `SDKInvalidResult` in `src/core/inlong_api.h`.
 
 ## Demo
 
 1. Refer to `release/demo/send_demo.cc`.
 
-2. Static lib is in `release/lib`. Header file is in `release/inc`.
+2. Static lib is in `release/lib`. Header file is in `release/lib`.

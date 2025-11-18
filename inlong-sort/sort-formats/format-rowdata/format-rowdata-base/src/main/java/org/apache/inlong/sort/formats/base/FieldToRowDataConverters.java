@@ -70,17 +70,24 @@ public class FieldToRowDataConverters implements Serializable {
             case NULL:
                 return (obj) -> null;
             case BOOLEAN:
+                return obj -> Boolean.parseBoolean(obj.toString());
             case TINYINT:
+                return obj -> Byte.parseByte(obj.toString());
             case SMALLINT:
-            case INTEGER:
+                return obj -> Short.parseShort(obj.toString());
             case INTERVAL_YEAR_MONTH:
-            case BIGINT:
+            case INTEGER:
+                return obj -> Integer.parseInt(obj.toString());
             case INTERVAL_DAY_TIME:
+            case BIGINT:
+                return obj -> Long.parseLong(obj.toString());
             case FLOAT:
+                return obj -> Float.parseFloat(obj.toString());
             case DOUBLE:
+                return obj -> Double.parseDouble(obj.toString());
             case BINARY:
             case VARBINARY:
-                return (obj) -> obj;
+                return obj -> obj.toString().getBytes();
             case CHAR:
             case VARCHAR:
                 return (obj -> StringData.fromString((String) obj));

@@ -30,6 +30,7 @@ import { GroupLogs } from '@/ui/components/GroupLogs';
 import { dashCardList, useColumns } from './config';
 import { statusList } from '@/plugins/groups/common/status';
 import { useDefaultMeta } from '@/plugins';
+import { inlongGroupModeList } from '@/plugins/sync/common/SyncType';
 
 const Comp: React.FC = () => {
   const { options: groups } = useDefaultMeta('group');
@@ -38,7 +39,8 @@ const Comp: React.FC = () => {
   const [options, setOptions] = useState({
     pageSize: defaultSize,
     pageNum: 1,
-    inlongGroupMode: 1,
+    inlongGroupMode: null,
+    mqType: 'NONE',
   });
 
   const [groupLogs, setGroupLogs] = useState({
@@ -50,7 +52,8 @@ const Comp: React.FC = () => {
   const { data: summary = {} } = useRequest({
     url: '/group/countByStatus',
     params: {
-      inlongGroupMode: 1,
+      inlongGroupMode: options.inlongGroupMode,
+      mqType: 'NONE',
     },
   });
 
@@ -169,6 +172,21 @@ const Comp: React.FC = () => {
           allowClear: true,
           options: statusList,
           dropdownMatchSelectWidth: false,
+          showSearch: true,
+          filterOption: (keyword: string, option: { label: any }) => {
+            return (option?.label ?? '').toLowerCase().includes(keyword.toLowerCase());
+          },
+        },
+      },
+      {
+        type: 'select',
+        name: 'inlongGroupMode',
+        label: i18n.t('meta.Synchronize.SyncType'),
+        initialValue: defaultValues.inlongGroupMode,
+        props: {
+          allowClear: true,
+          options: inlongGroupModeList,
+          dropdownMatchSelectWidth: false,
         },
       },
     ],
@@ -196,7 +214,9 @@ const Comp: React.FC = () => {
             table={{
               columns,
               rowKey: 'id',
-              dataSource: data?.list,
+              dataSource: data?.list?.map(item => ({
+                ...item,
+              })),
               pagination,
               loading,
               onChange,

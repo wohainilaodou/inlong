@@ -17,8 +17,8 @@
 
 package org.apache.inlong.sort.standalone.config.loader;
 
-import org.apache.inlong.common.pojo.sort.SortClusterConfig;
-import org.apache.inlong.common.pojo.sort.SortTaskConfig;
+import org.apache.inlong.common.pojo.sort.ClusterTagConfig;
+import org.apache.inlong.common.pojo.sort.TaskConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
 import org.apache.inlong.common.pojo.sort.mq.MqClusterConfig;
 import org.apache.inlong.common.pojo.sort.mq.PulsarClusterConfig;
@@ -41,16 +41,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SortConfigQueryConsumeConfig implements QueryConsumeConfig {
 
-    private List<InLongTopic> subscribedTopic = new ArrayList<>();
-
-    public void reload() {
-
-    }
-
     @Override
     public ConsumeConfig queryCurrentConsumeConfig(String sortTaskId) {
-        SortTaskConfig taskConfig = SortConfigHolder.getTaskConfig(sortTaskId);
-        List<InLongTopic> topics = taskConfig.getClusters()
+        TaskConfig taskConfig = SortConfigHolder.getTaskConfig(sortTaskId);
+        List<InLongTopic> topics = taskConfig.getClusterTagConfigs()
                 .stream()
                 .map(this::parseTopics)
                 .flatMap(Collection::stream)
@@ -59,7 +53,7 @@ public class SortConfigQueryConsumeConfig implements QueryConsumeConfig {
         return new ConsumeConfig(topics);
     }
 
-    public List<InLongTopic> parseTopics(SortClusterConfig clusterConfig) {
+    public List<InLongTopic> parseTopics(ClusterTagConfig clusterConfig) {
         List<InLongTopic> topics = new ArrayList<>();
         List<MqClusterConfig> mqClusterConfigs = clusterConfig.getMqClusterConfigs();
         List<DataFlowConfig> dataFlowConfigs = clusterConfig.getDataFlowConfigs();
@@ -70,6 +64,8 @@ public class SortConfigQueryConsumeConfig implements QueryConsumeConfig {
                 topic.setTopic(flow.getSourceConfig().getTopic());
                 // only supports pulsar now
                 topic.setTopicType(InlongTopicTypeEnum.PULSAR.getName());
+                topic.setStartConsumeTime(flow.getSourceConfig().getStartConsumeTime());
+                topic.setStopConsumeTime(flow.getSourceConfig().getStopConsumeTime());
                 topic.setProperties(flow.getProperties() != null ? flow.getProperties() : new HashMap<>());
                 topics.add(topic);
             }

@@ -172,3 +172,20 @@ func WithMetricsRegistry(reg prometheus.Registerer) Option {
 		o.MetricsRegistry = reg
 	}
 }
+
+// WithAuth sets Auth
+func WithAuth(auth Auth) Option {
+	return func(o *Options) {
+		if auth == nil {
+			return
+		}
+		o.Auth = auth
+	}
+}
+
+// WithMaxConnLifetime sets MaxConnLifetime
+func WithMaxConnLifetime(lifetime time.Duration) Option {
+	return func(o *Options) {
+		o.MaxConnLifetime = lifetime
+	}
+}

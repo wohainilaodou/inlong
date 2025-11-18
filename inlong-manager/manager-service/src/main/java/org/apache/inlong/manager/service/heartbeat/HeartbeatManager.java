@@ -17,6 +17,7 @@
 
 package org.apache.inlong.manager.service.heartbeat;
 
+import org.apache.inlong.common.enums.ComponentTypeEnum;
 import org.apache.inlong.common.enums.NodeSrvStatus;
 import org.apache.inlong.common.heartbeat.AbstractHeartbeatManager;
 import org.apache.inlong.common.heartbeat.AddressInfo;
@@ -162,6 +163,8 @@ public class HeartbeatManager implements AbstractHeartbeatManager {
                     .join(heartbeat.getAddressInfos().stream().map(AddressInfo::getIp).collect(Collectors.toList())));
             heartbeat.setReportSourceType(Joiner.on(InlongConstants.COMMA).join(heartbeat.getAddressInfos().stream()
                     .map(AddressInfo::getReportSourceType).collect(Collectors.toList())));
+            heartbeat.setProtocolType(Joiner.on(InlongConstants.COMMA).join(heartbeat.getAddressInfos().stream()
+                    .map(AddressInfo::getProtocolType).collect(Collectors.toList())));
         }
 
         // protocolType may be null, and the protocolTypes' length may be less than ports' length
@@ -209,6 +212,10 @@ public class HeartbeatManager implements AbstractHeartbeatManager {
             } else {
                 heartbeatMsg.setProtocolType(protocolType);
             }
+            if (Objects.equals(heartbeat.getComponentType(), ComponentTypeEnum.Agent.getType())) {
+                heartbeatMsg.setProtocolType(null);
+                heartbeatMsg.setPort(null);
+            }
             // uninstall node event
             if (NodeSrvStatus.SERVICE_UNINSTALL.equals(heartbeat.getNodeSrvStatus())) {
                 InlongClusterNodeEntity clusterNode = getClusterNode(clusterInfo, heartbeatMsg);
@@ -254,13 +261,20 @@ public class HeartbeatManager implements AbstractHeartbeatManager {
         }
 
         // protocolType may be null, and the protocolTypes' length may be less than ports' length
-        String[] ports = heartbeat.getPort().split(InlongConstants.COMMA);
         String[] ips = heartbeat.getIp().split(InlongConstants.COMMA);
+        String port = heartbeat.getPort();
+        String[] ports = null;
+        if (StringUtils.isNotBlank(port)) {
+            ports = port.split(InlongConstants.COMMA);
+            if (ports.length < ips.length) {
+                ports = null;
+            }
+        }
         String protocolType = heartbeat.getProtocolType();
         String[] protocolTypes = null;
-        if (StringUtils.isNotBlank(protocolType) && ports.length > 1) {
+        if (StringUtils.isNotBlank(protocolType) && ips.length > 1) {
             protocolTypes = protocolType.split(InlongConstants.COMMA);
-            if (protocolTypes.length < ports.length) {
+            if (protocolTypes.length < ips.length) {
                 protocolTypes = null;
             }
         }
@@ -268,22 +282,28 @@ public class HeartbeatManager implements AbstractHeartbeatManager {
         // heartbeatInterval() is the reporting interval of cluster nodes, multiplied by two to prevent network
         // fluctuations
         ComponentHeartbeatEntity componentHeartbeatEntity = componentHeartbeatMapper.selectTimeOutHeartBeat(
-                componentHeartbeat.getComponentType(), componentHeartbeat.getIp(), heartbeatInterval() * 2L);
+                componentHeartbeat.getComponentType(), componentHeartbeat.getIp(), heartbeatInterval() * 6L);
         if (componentHeartbeatEntity != null) {
             heartbeatCache.put(componentHeartbeat, heartbeat);
             return;
         }
 
-        for (int i = 0; i < ports.length; i++) {
+        for (int i = 0; i < ips.length; i++) {
             // deep clone the heartbeat
             HeartbeatMsg heartbeatMsg = JsonUtils.parseObject(JsonUtils.toJsonByte(heartbeat), HeartbeatMsg.class);
             assert heartbeatMsg != null;
-            heartbeatMsg.setPort(ports[i].trim());
+            if (StringUtils.isNotBlank(port) && ports != null) {
+                heartbeatMsg.setPort(ports[i].trim());
+            }
             heartbeatMsg.setIp(ips[i].trim());
             if (protocolTypes != null) {
                 heartbeatMsg.setProtocolType(protocolTypes[i]);
             } else {
                 heartbeatMsg.setProtocolType(protocolType);
+            }
+            if (Objects.equals(heartbeat.getComponentType(), ComponentTypeEnum.Agent.getType())) {
+                heartbeatMsg.setProtocolType(null);
+                heartbeatMsg.setPort(null);
             }
             InlongClusterNodeEntity clusterNode = getClusterNode(clusterInfo, heartbeatMsg);
             if (clusterNode == null) {

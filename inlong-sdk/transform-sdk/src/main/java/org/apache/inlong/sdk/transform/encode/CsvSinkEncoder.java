@@ -19,36 +19,35 @@ package org.apache.inlong.sdk.transform.encode;
 
 import org.apache.inlong.sdk.transform.pojo.CsvSinkInfo;
 import org.apache.inlong.sdk.transform.pojo.FieldInfo;
+import org.apache.inlong.sdk.transform.process.Context;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.nio.charset.Charset;
-import java.util.List;
 
 /**
  * CsvSinkEncoder
  */
-public class CsvSinkEncoder implements SinkEncoder {
+public class CsvSinkEncoder extends SinkEncoder<String> {
 
     protected CsvSinkInfo sinkInfo;
     protected Charset sinkCharset = Charset.defaultCharset();
     private Character delimiter = '|';
     private Character escapeChar = null;
-    private List<FieldInfo> fields;
     private StringBuilder builder = new StringBuilder();
 
     public CsvSinkEncoder(CsvSinkInfo sinkInfo) {
+        super(sinkInfo.getFields());
         this.sinkInfo = sinkInfo;
-        if (!StringUtils.isBlank(sinkInfo.getDelimiter())) {
-            this.delimiter = sinkInfo.getDelimiter().charAt(0);
+        if (sinkInfo.getDelimiter() != null) {
+            this.delimiter = sinkInfo.getDelimiter();
         }
-        if (!StringUtils.isBlank(sinkInfo.getEscapeChar())) {
-            this.escapeChar = sinkInfo.getEscapeChar().charAt(0);
+        if (sinkInfo.getDelimiter() != null) {
+            this.escapeChar = sinkInfo.getEscapeChar();
         }
         if (!StringUtils.isBlank(sinkInfo.getCharset())) {
             this.sinkCharset = Charset.forName(sinkInfo.getCharset());
         }
-        this.fields = sinkInfo.getFields();
     }
 
     /**
@@ -57,7 +56,7 @@ public class CsvSinkEncoder implements SinkEncoder {
      * @return
      */
     @Override
-    public String encode(SinkData sinkData) {
+    public String encode(SinkData sinkData, Context context) {
         builder.delete(0, builder.length());
         if (fields == null || fields.size() == 0) {
             if (escapeChar == null) {
@@ -65,7 +64,11 @@ public class CsvSinkEncoder implements SinkEncoder {
             } else {
                 for (String fieldName : sinkData.keyList()) {
                     String fieldValue = sinkData.getField(fieldName);
-                    EscapeUtils.escapeContent(builder, delimiter, escapeChar, fieldValue);
+                    if (StringUtils.equals(fieldName, ALL_SOURCE_FIELD_SIGN)) {
+                        builder.append(fieldValue);
+                    } else {
+                        EscapeUtils.escapeContent(builder, delimiter, escapeChar, fieldValue);
+                    }
                     builder.append(delimiter);
                 }
             }
@@ -84,11 +87,4 @@ public class CsvSinkEncoder implements SinkEncoder {
         return builder.substring(0, builder.length() - 1);
     }
 
-    /**
-     * get fields
-     * @return the fields
-     */
-    public List<FieldInfo> getFields() {
-        return fields;
-    }
 }

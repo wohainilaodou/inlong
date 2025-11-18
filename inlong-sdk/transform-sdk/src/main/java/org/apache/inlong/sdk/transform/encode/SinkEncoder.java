@@ -18,15 +18,30 @@
 package org.apache.inlong.sdk.transform.encode;
 
 import org.apache.inlong.sdk.transform.pojo.FieldInfo;
+import org.apache.inlong.sdk.transform.process.Context;
+
+import com.google.common.collect.ImmutableList;
+import lombok.Getter;
 
 import java.util.List;
 
 /**
  * SinkEncoder
  */
-public interface SinkEncoder {
+@Getter
+public abstract class SinkEncoder<Output> {
 
-    String encode(SinkData sinkData);
+    public static final String ALL_SOURCE_FIELD_SIGN = "*";
 
-    List<FieldInfo> getFields();
+    protected final List<FieldInfo> fields;
+
+    public SinkEncoder() {
+        this(ImmutableList.of());
+    }
+
+    public SinkEncoder(List<FieldInfo> fields) {
+        this.fields = fields;
+    }
+
+    public abstract Output encode(SinkData sinkData, Context context);
 }

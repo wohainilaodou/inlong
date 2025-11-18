@@ -25,6 +25,7 @@ import EditableTable from '@/ui/components/EditableTable';
 import { fieldTypes as sourceFieldsTypes } from '@/plugins/sinks/common/sourceFields';
 import { statusList, genStatusTag } from './status';
 import { timestampFormat } from '@/core/utils';
+import HighRadio from '@/ui/components/HighRadio';
 
 const { I18nMap, I18n } = DataWithBackend;
 const { FieldList, FieldDecorator } = RenderRow;
@@ -79,12 +80,6 @@ export class StreamDefaultInfo implements DataWithBackend, RenderRow, RenderList
   @ColumnDecorator()
   @I18n('basic.Modifier')
   readonly modifier: string;
-
-  @ColumnDecorator({
-    render: text => timestampFormat(text),
-  })
-  @I18n('basic.CreateTime')
-  readonly createTime: string;
 
   @FieldDecorator({
     type: 'select',
@@ -173,11 +168,10 @@ export class StreamDefaultInfo implements DataWithBackend, RenderRow, RenderList
   dataEncoding: string;
 
   @FieldDecorator({
-    type: 'select',
+    type: HighRadio,
     initialValue: '124',
     props: values => ({
       disabled: [110].includes(values?.status),
-      dropdownMatchSelectWidth: false,
       options: [
         {
           label: i18n.t('meta.Stream.DataSeparator.Space'),
@@ -206,9 +200,19 @@ export class StreamDefaultInfo implements DataWithBackend, RenderRow, RenderList
       ],
       useInput: true,
       useInputProps: {
+        style:
+          i18n?.language === 'cn'
+            ? {
+                width: 80,
+              }
+            : {
+                width: 80,
+                position: 'absolute',
+                left: 180,
+                bottom: 0,
+              },
         placeholder: 'ASCII',
       },
-      style: { width: 100 },
     }),
     rules: [
       {
@@ -223,42 +227,14 @@ export class StreamDefaultInfo implements DataWithBackend, RenderRow, RenderList
   @I18n('meta.Stream.DataSeparator')
   dataSeparator: string;
   @FieldDecorator({
-    type: 'select',
-    props: {
-      filterOption: true,
-      options: {
-        requestTrigger: ['onOpen', 'onSearch'],
-        requestService: keyword => ({
-          url: '/template/list',
-          method: 'POST',
-          data: {
-            keyword,
-            pageNum: 1,
-            pageSize: 20,
-          },
-        }),
-        requestParams: {
-          formatResult: result => {
-            return result?.list?.map(item => ({
-              ...item,
-              label: item.name,
-              value: item.name,
-            }));
-          },
-        },
-      },
-    },
-    rules: [],
-  })
-  @I18n('meta.Stream.SourceDataField.Template')
-  streamDataTemplate: string;
-
-  @FieldDecorator({
     type: EditableTable,
     props: values => ({
       size: 'small',
       canDelete: record => !(record.id && [110].includes(values?.status)),
       canBatchAdd: true,
+      exOperation: {
+        templateOperation: !Boolean(values.id),
+      },
       columns: [
         {
           title: i18n.t('meta.Stream.FieldName'),

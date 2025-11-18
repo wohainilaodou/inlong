@@ -57,7 +57,7 @@ export class GroupDefaultInfo implements DataWithBackend, RenderRow, RenderList 
   @FieldDecorator({
     type: 'input',
     props: {
-      maxLength: 32,
+      maxLength: 200,
     },
   })
   @I18n('meta.Group.InlongGroupName')
@@ -95,6 +95,7 @@ export class GroupDefaultInfo implements DataWithBackend, RenderRow, RenderList 
     },
   })
   @ColumnDecorator({
+    width: 300,
     render: type => groups.find(c => c.value === type)?.label || type,
   })
   @I18n('meta.Group.MQType')

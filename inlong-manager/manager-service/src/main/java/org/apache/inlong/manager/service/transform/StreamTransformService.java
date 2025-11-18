@@ -18,6 +18,7 @@
 package org.apache.inlong.manager.service.transform;
 
 import org.apache.inlong.manager.pojo.common.PageResult;
+import org.apache.inlong.manager.pojo.sink.StreamSink;
 import org.apache.inlong.manager.pojo.transform.DeleteTransformRequest;
 import org.apache.inlong.manager.pojo.transform.TransformPageRequest;
 import org.apache.inlong.manager.pojo.transform.TransformRequest;
@@ -39,15 +40,6 @@ public interface StreamTransformService {
      * @return transform id after saving
      */
     Integer save(TransformRequest request, String operator);
-
-    /**
-     * Save the transform information.
-     *
-     * @param request the transform request
-     * @param opInfo userinfo of operator
-     * @return transform id after saving
-     */
-    Integer save(TransformRequest request, UserInfo opInfo);
 
     /**
      * Query transform information based on inlong group id and inlong stream id.
@@ -76,16 +68,6 @@ public interface StreamTransformService {
     List<TransformResponse> listTransform(String groupId, String streamId);
 
     /**
-     * Query transform information based on inlong group id and inlong stream id.
-     *
-     * @param groupId the inlong group id
-     * @param streamId the inlong stream id
-     * @param opInfo userinfo of operator
-     * @return the transform response
-     */
-    List<TransformResponse> listTransform(String groupId, String streamId, UserInfo opInfo);
-
-    /**
      * Modify data transform information.
      *
      * @param request the transform request
@@ -93,15 +75,6 @@ public interface StreamTransformService {
      * @return Whether succeed
      */
     Boolean update(TransformRequest request, String operator);
-
-    /**
-     * Modify data transform information.
-     *
-     * @param request the transform request
-     * @param opInfo userinfo of operator
-     * @return Whether succeed
-     */
-    Boolean update(TransformRequest request, UserInfo opInfo);
 
     /**
      * Delete the stream transform by the given id.
@@ -113,12 +86,19 @@ public interface StreamTransformService {
     Boolean delete(DeleteTransformRequest request, String operator);
 
     /**
-     * Delete the stream transform by the given id.
+     * Get transform sql by sink
      *
-     * @param request delete request
-     * @param opInfo userinfo of operator
-     * @return Whether succeed
+     * @param sink sink info
+     * @return return transform sql
      */
-    Boolean delete(DeleteTransformRequest request, UserInfo opInfo);
+    String getTransformSql(StreamSink sink);
+
+    /**
+     * Parse transform sql by transform information
+     *
+     * @param request the transform request
+     * @return return transform sql
+     */
+    String parseTransformSql(TransformRequest request, String operator);
 
 }

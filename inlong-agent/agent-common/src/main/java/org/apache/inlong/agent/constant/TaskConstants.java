@@ -22,23 +22,15 @@ package org.apache.inlong.agent.constant;
  */
 public class TaskConstants extends CommonConstants {
 
-    // job id
-    // public static final String JOB_ID = "job.id";
     public static final String TASK_ID = "task.id";
     public static final String INSTANCE_ID = "instance.id";
-    public static final String JOB_INSTANCE_ID = "job.instance.id";
     public static final String INSTANCE_CREATE_TIME = "instance.createTime";
     public static final String INSTANCE_MODIFY_TIME = "instance.modifyTime";
     public static final String TASK_GROUP_ID = "task.groupId";
     public static final String TASK_STREAM_ID = "task.streamId";
     public static final String RESTORE_FROM_DB = "task.restoreFromDB";
-
-    public static final String TASK_SOURCE = "task.source";
-
     public static final String TASK_CHANNEL = "task.channel";
-
-    public static final String TASK_CLASS = "task.taskClass";
-    public static final String INSTANCE_CLASS = "task.instance.class";
+    public static final String TASK_TYPE = "task.taskType";
     public static final String TASK_FILE_TRIGGER = "task.fileTask.trigger";
 
     // sink config
@@ -59,16 +51,14 @@ public class TaskConstants extends CommonConstants {
     public static final String TASK_CYCLE_UNIT = "task.cycleUnit";
     public static final String FILE_TASK_CYCLE_UNIT = "task.fileTask.cycleUnit";
     public static final String TASK_FILE_CONTENT_COLLECT_TYPE = "task.fileTask.contentCollectType";
-    public static final String SOURCE_DATA_CONTENT_STYLE = "task.fileTask.dataContentStyle";
-    public static final String SOURCE_DATA_SEPARATOR = "task.fileTask.dataSeparator";
-    public static final String TASK_RETRY = "task.fileTask.retry";
-    public static final String TASK_START_TIME = "task.fileTask.startTime";
-    public static final String TASK_END_TIME = "task.fileTask.endTime";
+    public static final String FILE_CONTENT_STYLE = "task.fileTask.dataContentStyle";
+    public static final String FILE_DATA_SEPARATOR = "task.fileTask.dataSeparator";
+    public static final String FILE_FILTER_STREAMS = "task.fileTask.filterStreams";
+    public static final String TASK_RETRY = "task.retry";
+    public static final String FILE_TASK_TIME_FROM = "task.fileTask.dataTimeFrom";
+    public static final String FILE_TASK_TIME_TO = "task.fileTask.dataTimeTo";
     public static final String FILE_MAX_NUM = "task.fileTask.maxFileCount";
     public static final String PREDEFINE_FIELDS = "task.predefinedFields";
-    public static final String FILE_SOURCE_EXTEND_CLASS = "task.fileTask.extendedClass";
-    public static final String DEFAULT_FILE_SOURCE_EXTEND_CLASS =
-            "org.apache.inlong.agent.plugin.sources.file.extend.ExtendedHandler";
     public static final String TASK_AUDIT_VERSION = "task.auditVersion";
 
     // Kafka task
@@ -76,6 +66,36 @@ public class TaskConstants extends CommonConstants {
     public static final String TASK_KAFKA_BOOTSTRAP_SERVERS = "task.kafkaTask.bootstrap.servers";
     public static final String TASK_KAFKA_OFFSET = "task.kafkaTask.partition.offset";
     public static final String TASK_KAFKA_AUTO_COMMIT_OFFSET_RESET = "task.kafkaTask.autoOffsetReset";
+
+    // COS task
+    public static final String COS_TASK_CYCLE_UNIT = "task.cosTask.cycleUnit";
+    public static final String COS_CONTENT_STYLE = "task.cosTask.contentStyle";
+    public static final String COS_MAX_NUM = "task.cosTask.maxFileCount";
+    public static final String COS_TASK_PATTERN = "task.cosTask.pattern";
+    public static final String COS_TIME_OFFSET = "task.cosTask.timeOffset";
+    public static final String COS_TASK_RETRY = "task.cosTask.retry";
+    public static final String COS_TASK_TIME_FROM = "task.cosTask.dataTimeFrom";
+    public static final String COS_TASK_TIME_TO = "task.cosTask.dataTimeTo";
+    public static final String COS_TASK_BUCKET_NAME = "task.cosTask.bucketName";
+    public static final String COS_TASK_SECRET_ID = "task.cosTask.secretId";
+    public static final String COS_TASK_SECRET_KEY = "task.cosTask.secretKey";
+    public static final String COS_TASK_REGION = "task.cosTask.region";
+    public static final String COS_DATA_SEPARATOR = "task.cosTask.dataSeparator";
+    public static final String COS_FILTER_STREAMS = "task.cosTask.filterStreams";
+
+    // SQL task
+    public static final String SQL_TASK_CYCLE_UNIT = "task.sqlTask.cycleUnit";
+    public static final String SQL_MAX_NUM = "task.sqlTask.maxInstanceCount";
+    public static final String SQL_TASK_SQL = "task.sqlTask.sql";
+    public static final String SQL_TIME_OFFSET = "task.sqlTask.timeOffset";
+    public static final String SQL_TASK_RETRY = "task.sqlTask.retry";
+    public static final String SQL_TASK_TIME_FROM = "task.sqlTask.dataTimeFrom";
+    public static final String SQL_TASK_TIME_TO = "task.sqlTask.dataTimeTo";
+    public static final String SQL_TASK_JDBC_URL = "task.sqlTask.jdbcUrl";
+    public static final String SQL_TASK_USERNAME = "task.sqlTask.username";
+    public static final String SQL_TASK_PASSWORD = "task.sqlTask.jdbcPassword";
+    public static final String SQL_TASK_DATA_SEPARATOR = "task.sqlTask.dataSeparator";
+    public static final String SQL_TASK_FETCH_SIZE = "task.sqlTask.fetchSize";
 
     /**
      * delimiter to split offset for different task
@@ -127,6 +147,17 @@ public class TaskConstants extends CommonConstants {
     public static final String TASK_MONGO_SSL_ENABLE = "task.mongoTask.sslEnabled";
     public static final String TASK_MONGO_POLL_INTERVAL = "task.mongoTask.pollIntervalInMs";
 
+    // Oracle task
+    public static final String TASK_ORACLE_HOSTNAME = "task.oracleTask.hostname";
+    public static final String TASK_ORACLE_PORT = "task.oracleTask.port";
+    public static final String TASK_ORACLE_USER = "task.oracleTask.user";
+    public static final String TASK_ORACLE_PASSWORD = "task.oracleTask.password";
+    public static final String TASK_ORACLE_DBNAME = "task.oracleTask.dbname";
+    public static final String TASK_ORACLE_SERVERNAME = "task.oracleTask.serverName";
+    public static final String TASK_ORACLE_SCHEMA_INCLUDE_LIST = "task.oracleTask.schemaIncludeList";
+    public static final String TASK_ORACLE_TABLE_INCLUDE_LIST = "task.oracleTask.tableIncludeList";
+    public static final String TASK_ORACLE_SNAPSHOT_MODE = "task.oracleTask.snapshotMode";
+
     // PostgreSQL task
     public static final String TASK_POSTGRES_HOSTNAME = "task.postgreSQLTask.hostname";
     public static final String TASK_POSTGRES_PORT = "task.postgreSQLTask.port";
@@ -138,6 +169,49 @@ public class TaskConstants extends CommonConstants {
     public static final String TASK_POSTGRES_TABLE_INCLUDE_LIST = "task.postgreSQLTask.tableIncludeList";
     public static final String TASK_POSTGRES_PLUGIN_NAME = "task.postgreSQLTask.pluginName";
     public static final String TASK_POSTGRES_SNAPSHOT_MODE = "task.postgreSQLTask.snapshotMode";
+
+    // MQTT
+    public static final String TASK_MQTT_USERNAME = "task.mqttTask.userName";
+    public static final String TASK_MQTT_PASSWORD = "task.mqttTask.password";
+    public static final String TASK_MQTT_SERVER_URI = "task.mqttTask.serverURI";
+    public static final String TASK_MQTT_TOPIC = "task.mqttTask.topic";
+    public static final String TASK_MQTT_CONNECTION_TIMEOUT = "task.mqttTask.connectionTimeOut";
+    public static final String TASK_MQTT_KEEPALIVE_INTERVAL = "task.mqttTask.keepAliveInterval";
+    public static final String TASK_MQTT_QOS = "task.mqttTask.qos";
+    public static final String TASK_MQTT_CLEAN_SESSION = "task.mqttTask.cleanSession";
+    public static final String TASK_MQTT_CLIENT_ID_PREFIX = "task.mqttTask.clientIdPrefix";
+    public static final String TASK_MQTT_QUEUE_SIZE = "task.mqttTask.queueSize";
+    public static final String TASK_MQTT_AUTOMATIC_RECONNECT = "task.mqttTask.automaticReconnect";
+    public static final String TASK_MQTT_VERSION = "task.mqttTask.mqttVersion";
+
+    // SQLServer task
+    public static final String TASK_SQLSERVER_HOSTNAME = "task.sqlserverTask.hostname";
+    public static final String TASK_SQLSERVER_PORT = "task.sqlserverTask.port";
+    public static final String TASK_SQLSERVER_USER = "task.sqlserverTask.user";
+    public static final String TASK_SQLSERVER_PASSWORD = "task.sqlserverTask.password";
+    public static final String TASK_SQLSERVER_DB_NAME = "task.sqlserverTask.dbname";
+    public static final String TASK_SQLSERVER_SNAPSHOT_MODE = "task.sqlserverTask.snapshot.mode";
+    public static final String TASK_SQLSERVER_SERVER_NAME = "task.sqlserverTask.serverName";
+    public static final String TASK_SQLSERVER_SCHEMA_NAME = "task.sqlserverTask.schemaName";
+    public static final String TASK_SQLSERVER_TABLE_NAME = "task.sqlserverTask.tableName";
+    public static final String TASK_SQLSERVER_UNIX_TIMESTAMP_FORMAT_ENABLE =
+            "task.sqlserverTask.unixTimestampFormatEnable";
+
+    public static final String TASK_REDIS_PORT = "task.redisTask.port";
+    public static final String TASK_REDIS_HOSTNAME = "task.redisTask.hostname";
+    public static final String TASK_REDIS_SSL = "task.redisTask.ssl";
+    public static final String TASK_REDIS_AUTHUSER = "task.redisTask.authUser";
+    public static final String TASK_REDIS_AUTHPASSWORD = "task.redisTask.authPassword";
+    public static final String TASK_REDIS_READTIMEOUT = "task.redisTask.readTimeout";
+    public static final String TASK_REDIS_REPLID = "task.redisTask.replId";
+    public static final String TASK_REDIS_OFFSET = "task.redisTask.offset";
+    public static final String TASK_REDIS_DB_NAME = "task.redisTask.dbName";
+    public static final String TASK_REDIS_COMMAND = "task.redisTask.command";
+    public static final String TASK_REDIS_KEYS = "task.redisTask.keys";
+    public static final String TASK_REDIS_FIELD_OR_MEMBER = "task.redisTask.fieldOrMember";
+    public static final String TASK_REDIS_IS_SUBSCRIBE = "task.redisTask.isSubscribe";
+    public static final String TASK_REDIS_SUBSCRIPTION_OPERATION = "task.redisTask.subscriptionOperation";
+    public static final String TASK_REDIS_SYNC_FREQ = "task.redisTask.syncFreq";
 
     public static final String TASK_STATE = "task.state";
 

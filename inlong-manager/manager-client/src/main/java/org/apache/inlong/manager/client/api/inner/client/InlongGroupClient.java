@@ -36,6 +36,7 @@ import org.apache.inlong.manager.pojo.group.InlongGroupRequest;
 import org.apache.inlong.manager.pojo.group.InlongGroupResetRequest;
 import org.apache.inlong.manager.pojo.group.InlongGroupTopicInfo;
 import org.apache.inlong.manager.pojo.group.InlongGroupTopicRequest;
+import org.apache.inlong.manager.pojo.schedule.OfflineJobRequest;
 import org.apache.inlong.manager.pojo.sort.SortStatusInfo;
 import org.apache.inlong.manager.pojo.sort.SortStatusRequest;
 import org.apache.inlong.manager.pojo.workflow.WorkflowResult;
@@ -297,6 +298,16 @@ public class InlongGroupClient {
         throw new RuntimeException(response.getErrMsg());
     }
 
+    public String getTenant(String groupId) {
+        Response<String> response = ClientUtils.executeHttpCall(inlongGroupApi.getTenant(groupId));
+        if (response.isSuccess()) {
+            return response.getData();
+        } else if (response.getErrMsg().contains("not exist")) {
+            return null;
+        }
+        throw new RuntimeException(response.getErrMsg());
+    }
+
     public List<InlongGroupTopicInfo> listTopics(InlongGroupTopicRequest request) {
         Response<List<InlongGroupTopicInfo>> response =
                 ClientUtils.executeHttpCall(inlongGroupApi.listTopics(request));
@@ -320,4 +331,9 @@ public class InlongGroupClient {
         return response.getData();
     }
 
+    public Boolean submitOfflineJob(OfflineJobRequest request) {
+        Response<Boolean> responseBody = ClientUtils.executeHttpCall(inlongGroupApi.submitOfflineJob(request));
+        ClientUtils.assertRespSuccess(responseBody);
+        return responseBody.getData();
+    }
 }

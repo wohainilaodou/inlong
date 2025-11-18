@@ -29,6 +29,7 @@ import org.apache.inlong.manager.pojo.sink.SinkField;
 import org.apache.inlong.manager.pojo.sink.SinkPageRequest;
 import org.apache.inlong.manager.pojo.sink.SinkRequest;
 import org.apache.inlong.manager.pojo.sink.StreamSink;
+import org.apache.inlong.manager.pojo.sink.TransformParseRequest;
 import org.apache.inlong.manager.pojo.stream.InlongStreamInfo;
 import org.apache.inlong.manager.pojo.user.UserInfo;
 
@@ -52,15 +53,6 @@ public interface StreamSinkService {
     Integer save(SinkRequest request, String operator);
 
     /**
-     * Save the sink info.
-     *
-     * @param request sink request need to save
-     * @param opInfo userinfo of operator
-     * @return sink id after saving
-     */
-    Integer save(SinkRequest request, UserInfo opInfo);
-
-    /**
      * Batch save the sink info.
      *
      * @param requestList sink request list need to save
@@ -76,15 +68,6 @@ public interface StreamSinkService {
      * @return detail of stream sink info
      */
     StreamSink get(Integer id);
-
-    /**
-     * Get stream sink info based on id.
-     *
-     * @param id sink id
-     * @param opInfo userinfo of operator
-     * @return detail of stream sink info
-     */
-    StreamSink get(Integer id, UserInfo opInfo);
 
     /**
      * List the stream sinks based on inlong group id and inlong stream id.
@@ -134,6 +117,15 @@ public interface StreamSinkService {
     PageResult<? extends StreamSink> listByCondition(SinkPageRequest request, String operator);
 
     /**
+     * Paging query stream sink detail info based on conditions.
+     *
+     * @param request paging request
+     * @param operator operator
+     * @return sink detail page list
+     */
+    PageResult<Map<String, Object>> listDetail(SinkPageRequest request, String operator);
+
+    /**
      * Paging query stream sink info based on conditions.
      *
      * @param request paging request
@@ -150,15 +142,6 @@ public interface StreamSinkService {
      * @return whether succeed
      */
     Boolean update(SinkRequest sinkRequest, String operator);
-
-    /**
-     * Modify stream sink info by id.
-     *
-     * @param sinkRequest stream sink request that needs to be modified
-     * @param opInfo userinfo of operator
-     * @return whether succeed
-     */
-    Boolean update(SinkRequest sinkRequest, UserInfo opInfo);
 
     /**
      * Modify stream sink info by key.
@@ -187,16 +170,6 @@ public interface StreamSinkService {
      * @return whether succeed
      */
     Boolean delete(Integer id, Boolean startProcess, String operator);
-
-    /**
-     * Delete the stream sink by the given id and sink type.
-     *
-     * @param id stream sink id
-     * @param startProcess whether to start the process after saving or updating
-     * @param opInfo userinfo of operator
-     * @return whether succeed
-     */
-    Boolean delete(Integer id, Boolean startProcess, UserInfo opInfo);
 
     /**
      * Delete the stream sink by given group id, stream id, and sink name.
@@ -275,4 +248,13 @@ public interface StreamSinkService {
      * @return list of sink field
      */
     List<SinkField> parseFields(ParseFieldRequest parseFieldRequest);
+
+    /**
+     * Parse transform sql for data
+     *
+     * @param request the request for parse transform
+     * @return result of parse result
+     */
+    Map<String, Object> parseTransform(TransformParseRequest request);
+
 }

@@ -71,7 +71,7 @@ public class TubeSingleTopicFetcher extends SingleTopicFetcher {
         TubeClientConfig tubeClientConfig = tubeConsumerCreator.getTubeClientConfig();
         try {
             ConsumerConfig consumerConfig = new ConsumerConfig(tubeClientConfig.getMasterInfo(),
-                    context.getConfig().getSortTaskId());
+                    context.getConfig().getSubscription());
 
             messageConsumer = tubeConsumerCreator.getMessageSessionFactory().createPullConsumer(consumerConfig);
             if (messageConsumer != null) {
@@ -288,5 +288,17 @@ public class TubeSingleTopicFetcher extends SingleTopicFetcher {
                 }
             }
         }
+    }
+
+    /**
+     * negativeAck Offset
+     *
+     * @param msgOffset String
+     */
+    @Override
+    public void negativeAck(String msgOffset) throws Exception {
+        this.sleepTime = TimeUnit.MILLISECONDS.convert(context.getConfig().getSendFailPauseConsumerMinutes(),
+                TimeUnit.MINUTES);
+        LOG.error("negativeAck,topic:{}, sleep {} minutes.", this.topic.getTopicKey(), this.sleepTime);
     }
 }

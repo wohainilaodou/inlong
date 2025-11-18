@@ -28,6 +28,7 @@ import org.apache.inlong.agent.plugin.file.Task;
 import org.apache.inlong.agent.state.State;
 import org.apache.inlong.agent.store.Store;
 import org.apache.inlong.agent.utils.AgentUtils;
+import org.apache.inlong.agent.utils.ThreadUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +52,7 @@ public abstract class AbstractTask extends Task {
     protected boolean initOK = false;
     protected long lastPrintTime = 0;
     protected long auditVersion;
+    protected long instanceCount = 0;
 
     @Override
     public void init(Object srcManager, TaskProfile taskProfile, Store basicStore) throws IOException {
@@ -58,7 +60,7 @@ public abstract class AbstractTask extends Task {
         this.taskProfile = taskProfile;
         this.basicStore = basicStore;
         auditVersion = Long.parseLong(taskProfile.get(TASK_AUDIT_VERSION));
-        instanceManager = new InstanceManager(taskProfile.getTaskId(), getInstanceLimit(),
+        instanceManager = new InstanceManager(taskManager, taskProfile.getTaskId(), getInstanceLimit(),
                 basicStore, taskManager.getTaskStore());
         try {
             instanceManager.start();
@@ -107,31 +109,32 @@ public abstract class AbstractTask extends Task {
     public void run() {
         Thread.currentThread().setName("task-core-" + getTaskId());
         running = true;
-        try {
-            doRun();
-        } catch (Throwable e) {
-            LOGGER.error("do run error: ", e);
+        while (!isFinished()) {
+            try {
+                doRun();
+            } catch (Throwable e) {
+                LOGGER.error("do run error: ", e);
+                ThreadUtils.threadThrowableHandler(Thread.currentThread(), e);
+            }
+            AgentUtils.silenceSleepInMs(CORE_THREAD_SLEEP_TIME);
         }
         running = false;
     }
 
     protected void doRun() {
-        while (!isFinished()) {
-            taskPrint();
-            AgentUtils.silenceSleepInMs(CORE_THREAD_SLEEP_TIME);
-            if (!initOK) {
-                continue;
-            }
-            List<InstanceProfile> profileList = getNewInstanceList();
-            for (InstanceProfile profile : profileList) {
-                InstanceAction action = new InstanceAction(ActionType.ADD, profile);
-                while (!isFinished() && !instanceManager.submitAction(action)) {
-                    LOGGER.error("instance manager action queue is full: taskId {}", getTaskId());
-                    AgentUtils.silenceSleepInMs(CORE_THREAD_SLEEP_TIME);
-                }
-            }
-            taskHeartbeat();
+        taskPrint();
+        if (!initOK) {
+            return;
         }
+        List<InstanceProfile> profileList = getNewInstanceList();
+        for (InstanceProfile profile : profileList) {
+            InstanceAction action = new InstanceAction(ActionType.ADD, profile);
+            while (!isFinished() && !instanceManager.submitAction(action)) {
+                LOGGER.error("instance manager action queue is full: taskId {}", getTaskId());
+                AgentUtils.silenceSleepInMs(CORE_THREAD_SLEEP_TIME);
+            }
+        }
+        taskHeartbeat();
     }
 
     protected abstract List<InstanceProfile> getNewInstanceList();
@@ -150,7 +153,7 @@ public abstract class AbstractTask extends Task {
     }
 
     protected boolean allInstanceFinished() {
-        return instanceManager.allInstanceFinished();
+        return instanceCount == instanceManager.getFinishedInstanceCount();
     }
 
     protected boolean shouldAddAgain(String fileName, long lastModifyTime) {
@@ -159,5 +162,10 @@ public abstract class AbstractTask extends Task {
 
     protected boolean isFull() {
         return instanceManager.isFull();
+    }
+
+    @Override
+    public int getInstanceNum() {
+        return instanceManager.getInstanceNum();
     }
 }

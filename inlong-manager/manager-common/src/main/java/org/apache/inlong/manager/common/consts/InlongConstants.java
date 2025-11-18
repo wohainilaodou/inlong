@@ -66,6 +66,8 @@ public class InlongConstants {
 
     public static final String LEFT_BRACKET = "(";
 
+    public static final String RIGHT_BRACKET = ")";
+
     public static final String PERCENT = "%";
 
     public static final String QUESTION_MARK = "?";
@@ -87,7 +89,15 @@ public class InlongConstants {
     public static final Integer DELETED_STATUS = 10;
 
     public static final Integer STANDARD_MODE = 0;
-    public static final Integer DATASYNC_MODE = 1;
+    public static final Integer DATASYNC_REALTIME_MODE = 1;
+    public static final Integer DATASYNC_OFFLINE_MODE = 2;
+
+    public static final String RUNTIME_EXECUTION_MODE_STREAM = "stream";
+    public static final String RUNTIME_EXECUTION_MODE_BATCH = "batch";
+
+    public static final String BOUNDARY_TYPE = "BOUNDARY_TYPE";
+    public static final String LOWER_BOUNDARY = "LOWER_BOUNDARY";
+    public static final String UPPER_BOUNDARY = "UPPER_BOUNDARY";
 
     public static final Integer DISABLE_ZK = 0;
     public static final Integer ENABLE_ZK = 1;
@@ -127,6 +137,8 @@ public class InlongConstants {
 
     public static final String PULSAR_QUEUE_TYPE_PARALLEL = "PARALLEL";
 
+    public static final String DEFAULT_TASK = "DEFAULT_TASK";
+
     /**
      * Format of the Pulsar topic: "persistent://tenant/namespace/topic
      */
@@ -136,6 +148,10 @@ public class InlongConstants {
      * Sort config
      */
     public static final String DATAFLOW = "dataflow";
+
+    public static final String REGISTER_SCHEDULE_STATUS = "register.schedule.status";
+
+    public static final String REGISTERED = "registered";
 
     public static final String STREAMS = "streams";
 

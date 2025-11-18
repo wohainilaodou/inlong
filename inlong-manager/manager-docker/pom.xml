@@ -25,7 +25,7 @@
     <parent>
         <groupId>org.apache.inlong</groupId>
         <artifactId>inlong-manager</artifactId>
-        <version>1.13.0-SNAPSHOT</version>
+        <version>2.4.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>manager-docker</artifactId>
@@ -65,6 +65,11 @@
         <dependency>
             <groupId>org.apache.inlong</groupId>
             <artifactId>sort-connector-mysql-cdc-v1.15</artifactId>
+            <version>${project.parent.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.inlong</groupId>
+            <artifactId>sort-connector-jdbc-v1.15</artifactId>
             <version>${project.parent.version}</version>
         </dependency>
     </dependencies>
@@ -121,7 +126,7 @@
                                     <outputDirectory>target/</outputDirectory>
                                     <includeArtifactIds>manager-web,
                                         sort-dist,sort-connector-pulsar-v1.15,sort-connector-kafka-v1.15,
-                                        sort-connector-mysql-cdc-v1.15</includeArtifactIds>
+                                        sort-connector-mysql-cdc-v1.15,sort-connector-jdbc-v1.15</includeArtifactIds>
                                     <excludeTransitive>true</excludeTransitive>
                                 </configuration>
                             </execution>

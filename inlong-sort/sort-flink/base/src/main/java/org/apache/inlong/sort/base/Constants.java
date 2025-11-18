@@ -67,6 +67,26 @@ public final class Constants {
 
     public static final String CURRENT_EMIT_EVENT_TIME_LAG = "currentEmitEventTimeLag";
 
+    public static final String DESERIALIZE_TIME_LAG = "deserializeTimeLag";
+
+    public static final String NUM_DESERIALIZE_SUCCESS = "numDeserializeSuccess";
+
+    public static final String NUM_DESERIALIZE_ERROR = "numDeserializeError";
+
+    public static final String NUM_SNAPSHOT_CREATE = "numSnapshotCreate";
+
+    public static final String NUM_SNAPSHOT_ERROR = "numSnapshotError";
+
+    public static final String NUM_SNAPSHOT_COMPLETE = "numSnapshotComplete";
+
+    public static final String SNAPSHOT_TO_CHECKPOINT_TIME_LAG = "snapshotToCheckpointTimeLag";
+
+    public static final String NUM_SERIALIZE_SUCCESS = "numSerializeSuccess";
+
+    public static final String NUM_SERIALIZE_ERROR = "numSerializeError";
+
+    public static final String SERIALIZE_TIME_LAG = "serializeTimeLag";
+
     /**
      * Timestamp when the read phase changed
      */
@@ -194,6 +214,12 @@ public final class Constants {
                     .booleanType()
                     .defaultValue(false)
                     .withDescription("Regard upsert delete as insert kind.");
+
+    public static final ConfigOption<Boolean> IGNORE_JSON_PARSE_ERROR =
+            ConfigOptions.key("sink.ignore.json.parse.error")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Ignore json parse error.");
 
     public static final ConfigOption<String> SINK_MULTIPLE_FORMAT =
             ConfigOptions.key("sink.multiple.format")
@@ -359,7 +385,7 @@ public final class Constants {
     public static final ConfigOption<String> DIRTY_SIDE_OUTPUT_FIELD_DELIMITER =
             ConfigOptions.key("dirty.side-output.field-delimiter")
                     .stringType()
-                    .defaultValue(",")
+                    .defaultValue("|")
                     .withDescription("The field-delimiter of dirty side-output");
     public static final ConfigOption<String> DIRTY_SIDE_OUTPUT_LINE_DELIMITER =
             ConfigOptions.key("dirty.side-output.line-delimiter")
@@ -442,5 +468,11 @@ public final class Constants {
                     .noDefaultValue()
                     .withDescription(
                             "pulsar client auth params");
+
+    public static final ConfigOption<Boolean> ENABLE_LOG_REPORT =
+            ConfigOptions.key("enable.log.report")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether enable openTelemetry log report or not.");
 
 }

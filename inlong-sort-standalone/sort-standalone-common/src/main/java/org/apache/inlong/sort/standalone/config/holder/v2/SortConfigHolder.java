@@ -17,14 +17,14 @@
 
 package org.apache.inlong.sort.standalone.config.holder.v2;
 
-import org.apache.inlong.common.pojo.sort.SortClusterConfig;
+import org.apache.inlong.common.pojo.sort.ClusterTagConfig;
 import org.apache.inlong.common.pojo.sort.SortConfig;
-import org.apache.inlong.common.pojo.sort.SortTaskConfig;
+import org.apache.inlong.common.pojo.sort.TaskConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
+import org.apache.inlong.common.pojo.sort.mq.MqClusterConfig;
 import org.apache.inlong.sort.standalone.config.holder.CommonPropertiesHolder;
-import org.apache.inlong.sort.standalone.config.holder.SortClusterConfigType;
-import org.apache.inlong.sort.standalone.config.loader.v2.ClassResourceSortClusterConfigLoader;
-import org.apache.inlong.sort.standalone.config.loader.v2.ManagerSortClusterConfigLoader;
+import org.apache.inlong.sort.standalone.config.loader.v2.ClassResourceSortConfigLoader;
+import org.apache.inlong.sort.standalone.config.loader.v2.ManagerSortConfigLoader;
 import org.apache.inlong.sort.standalone.config.loader.v2.SortConfigLoader;
 import org.apache.inlong.sort.standalone.config.pojo.InlongId;
 
@@ -33,6 +33,7 @@ import org.apache.commons.lang3.ClassUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flume.Context;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
@@ -51,7 +52,9 @@ public class SortConfigHolder {
     private long reloadInterval;
     private Timer reloadTimer;
     private SortConfigLoader loader;
-    private SortConfig config;
+    private SortConfig lastConfig = null;
+    private SortConfig currentConfig = null;
+    private SortConfig finalConfig = null;
     private Map<String, Map<String, String>> auditTagMap;
 
     private SortConfigHolder() {
@@ -71,12 +74,12 @@ public class SortConfigHolder {
             instance = new SortConfigHolder();
             instance.reloadInterval = CommonPropertiesHolder.getLong(RELOAD_INTERVAL, 60000L);
             String loaderType = CommonPropertiesHolder
-                    .getString(SortClusterConfigType.KEY_TYPE, SortClusterConfigType.MANAGER.name());
+                    .getString(SortConfigType.KEY_TYPE, SortConfigType.MANAGER.name());
 
-            if (SortClusterConfigType.FILE.name().equalsIgnoreCase(loaderType)) {
-                instance.loader = new ClassResourceSortClusterConfigLoader();
-            } else if (SortClusterConfigType.MANAGER.name().equalsIgnoreCase(loaderType)) {
-                instance.loader = new ManagerSortClusterConfigLoader();
+            if (SortConfigType.FILE.name().equalsIgnoreCase(loaderType)) {
+                instance.loader = new ClassResourceSortConfigLoader();
+            } else if (SortConfigType.MANAGER.name().equalsIgnoreCase(loaderType)) {
+                instance.loader = new ManagerSortConfigLoader();
             } else {
                 // user-defined
                 try {
@@ -90,7 +93,7 @@ public class SortConfigHolder {
                 }
             }
             if (instance.loader == null) {
-                instance.loader = new ClassResourceSortClusterConfigLoader();
+                instance.loader = new ClassResourceSortConfigLoader();
             }
             try {
                 instance.loader.configure(new Context(CommonPropertiesHolder.get()));
@@ -118,37 +121,112 @@ public class SortConfigHolder {
     private void reload() {
         try {
             SortConfig newConfig = this.loader.load();
-            if (newConfig == null) {
+            if (newConfig == null && currentConfig == null) {
                 return;
+            }
+            this.lastConfig = currentConfig;
+            this.currentConfig = newConfig;
+            SortConfig finalConfig = new SortConfig();
+            finalConfig.setTasks(new ArrayList<>());
+            if (this.lastConfig != null) {
+                this.mergeSortConfig(finalConfig, lastConfig);
+            }
+            if (this.currentConfig != null) {
+                this.mergeSortConfig(finalConfig, currentConfig);
             }
 
             // <SortTaskName, <InlongId, AuditTag>>
-            this.auditTagMap = newConfig.getTasks()
+            this.auditTagMap = finalConfig.getTasks()
                     .stream()
-                    .collect(Collectors.toMap(SortTaskConfig::getSortTaskName,
-                            v -> v.getClusters()
+                    .collect(Collectors.toMap(TaskConfig::getSortTaskName,
+                            v -> v.getClusterTagConfigs()
                                     .stream()
-                                    .map(SortClusterConfig::getDataFlowConfigs)
+                                    .map(ClusterTagConfig::getDataFlowConfigs)
                                     .flatMap(Collection::stream)
                                     .filter(flow -> StringUtils.isNotEmpty(flow.getAuditTag()))
                                     .collect(Collectors.toMap(flow -> InlongId.generateUid(flow.getInlongGroupId(),
                                             flow.getInlongStreamId()),
                                             DataFlowConfig::getAuditTag,
                                             (flow1, flow2) -> flow1))));
-            this.config = newConfig;
+            this.finalConfig = finalConfig;
         } catch (Throwable e) {
             log.error("failed to reload sort config", e);
         }
     }
 
-    public static SortConfig getSortConfig() {
-        return get().config;
+    /**
+     * mergeSortConfig
+     */
+    private void mergeSortConfig(SortConfig finalConfig, SortConfig appendConfig) {
+        if (appendConfig == null) {
+            return;
+        }
+        finalConfig.setSortClusterName(appendConfig.getSortClusterName());
+        Map<String, TaskConfig> finalMap = new HashMap<>();
+        finalConfig.getTasks().forEach(v -> finalMap.put(v.getSortTaskName(), v));
+        for (TaskConfig taskConfig : appendConfig.getTasks()) {
+            String taskName = taskConfig.getSortTaskName();
+            TaskConfig finalTask = finalMap.get(taskName);
+            // new
+            if (finalTask == null) {
+                finalMap.put(taskName, taskConfig);
+                continue;
+            }
+            this.mergeTaskConfig(finalTask, taskConfig);
+        }
+        finalConfig.getTasks().clear();
+        finalConfig.getTasks().addAll(finalMap.values());
     }
 
-    public static SortTaskConfig getTaskConfig(String sortTaskName) {
-        SortConfig config = get().config;
+    private void mergeTaskConfig(TaskConfig finalConfig, TaskConfig appendConfig) {
+        if (appendConfig == null) {
+            return;
+        }
+        finalConfig.setSortTaskName(appendConfig.getSortTaskName());
+        finalConfig.setNodeConfig(appendConfig.getNodeConfig());
+        Map<String, ClusterTagConfig> finalMap = new HashMap<>();
+        finalConfig.getClusterTagConfigs().forEach(v -> finalMap.put(v.getClusterTag(), v));
+        for (ClusterTagConfig tagConfig : appendConfig.getClusterTagConfigs()) {
+            String clusterTag = tagConfig.getClusterTag();
+            ClusterTagConfig finalTag = finalMap.get(clusterTag);
+            // new
+            if (finalTag == null) {
+                finalMap.put(clusterTag, tagConfig);
+                continue;
+            }
+            this.mergeTagConfig(finalTag, tagConfig);
+        }
+        finalConfig.getClusterTagConfigs().clear();
+        finalConfig.getClusterTagConfigs().addAll(finalMap.values());
+    }
+
+    private void mergeTagConfig(ClusterTagConfig finalConfig, ClusterTagConfig appendConfig) {
+        if (appendConfig == null) {
+            return;
+        }
+        finalConfig.setClusterTag(appendConfig.getClusterTag());
+        // mqClusterConfigs
+        Map<String, MqClusterConfig> finalMqMap = new HashMap<>();
+        finalConfig.getMqClusterConfigs().forEach(v -> finalMqMap.put(v.getClusterName(), v));
+        appendConfig.getMqClusterConfigs().forEach(v -> finalMqMap.put(v.getClusterName(), v));
+        finalConfig.getMqClusterConfigs().clear();
+        finalConfig.getMqClusterConfigs().addAll(finalMqMap.values());
+        // dataFlowConfigs
+        Map<String, DataFlowConfig> finalMap = new HashMap<>();
+        finalConfig.getDataFlowConfigs().forEach(v -> finalMap.put(v.getDataflowId(), v));
+        appendConfig.getDataFlowConfigs().forEach(v -> finalMap.put(v.getDataflowId(), v));
+        finalConfig.getDataFlowConfigs().clear();
+        finalConfig.getDataFlowConfigs().addAll(finalMap.values());
+    }
+
+    public static SortConfig getSortConfig() {
+        return get().finalConfig;
+    }
+
+    public static TaskConfig getTaskConfig(String sortTaskName) {
+        SortConfig config = get().finalConfig;
         if (config != null && config.getTasks() != null) {
-            for (SortTaskConfig task : config.getTasks()) {
+            for (TaskConfig task : config.getTasks()) {
                 if (StringUtils.equals(sortTaskName, task.getSortTaskName())) {
                     return task;
                 }

@@ -18,7 +18,7 @@
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button } from 'antd';
+import { Button, message, Modal } from 'antd';
 import i18n from '@/i18n';
 import HighTable from '@/ui/components/HighTable';
 import { PageContainer } from '@/ui/components/PageContainer';
@@ -26,6 +26,7 @@ import { defaultSize } from '@/configs/pagination';
 import { useRequest } from '@/ui/hooks';
 import CreateModal from './CreateModal';
 import { timestampFormat } from '@/core/utils';
+import request from '@/core/utils/request';
 
 const Comp: React.FC = () => {
   const [options, setOptions] = useState({
@@ -101,25 +102,38 @@ const Comp: React.FC = () => {
     ],
     [],
   );
+  const onDelete = useCallback(
+    record => {
+      Modal.confirm({
+        title: i18n.t('basic.DeleteConfirm'),
+        onOk: async () => {
+          await request({
+            url: `/template/delete`,
+            method: 'DELETE',
+            params: {
+              templateName: record.name,
+            },
+          });
+          await getList();
+          message.success(i18n.t('basic.DeleteSuccess'));
+        },
+      });
+    },
+    [getList],
+  );
   const entityColumns = useMemo(() => {
     return [
-      {
-        title: 'id',
-        dataIndex: 'id',
-        key: 'id',
-        width: 100,
-      },
       {
         title: i18n.t('pages.GroupDataTemplate.Name'),
         dataIndex: 'name',
         key: 'name',
-        width: 100,
+        width: 200,
       },
       {
-        title: i18n.t('pages.GroupDataTemplate.InChargers'),
+        title: i18n.t('pages.GroupDataTemplate.InCharges'),
         dataIndex: 'inCharges',
         key: 'inCharges',
-        width: 100,
+        width: 300,
       },
       {
         title: i18n.t('pages.GroupDataTemplate.TenantList'),
@@ -133,10 +147,28 @@ const Comp: React.FC = () => {
         ),
       },
       {
-        title: i18n.t('pages.GroupDataTemplate.Version'),
-        dataIndex: 'version',
-        key: 'version',
+        title: i18n.t('pages.GroupDataTemplate.Creator'),
+        dataIndex: 'creator',
+        key: 'creator',
         width: 200,
+        render: (text, record: any) => (
+          <>
+            <div>{text}</div>
+            <div>{record.createTime && timestampFormat(record.createTime)}</div>
+          </>
+        ),
+      },
+      {
+        title: i18n.t('pages.GroupDataTemplate.Modifier'),
+        dataIndex: 'modifier',
+        key: 'modifier',
+        width: 200,
+        render: (text, record: any) => (
+          <>
+            <div>{text}</div>
+            <div>{record.modifyTime && timestampFormat(record.modifyTime)}</div>
+          </>
+        ),
       },
     ];
   }, []);
@@ -145,11 +177,14 @@ const Comp: React.FC = () => {
       {
         title: i18n.t('basic.Operating'),
         dataIndex: 'action',
-        width: 200,
+        width: 150,
         render: (text, record) => (
           <>
             <Button type="link" onClick={() => onEdit(record)}>
               {i18n.t('basic.Edit')}
+            </Button>
+            <Button type="link" onClick={() => onDelete(record)}>
+              {i18n.t('basic.Delete')}
             </Button>
           </>
         ),

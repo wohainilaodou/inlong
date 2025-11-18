@@ -17,10 +17,13 @@
 
 package org.apache.inlong.manager.service.source.file;
 
+import org.apache.inlong.common.pojo.agent.DataConfig;
 import org.apache.inlong.manager.common.consts.SourceType;
 import org.apache.inlong.manager.common.enums.ErrorCodeEnum;
 import org.apache.inlong.manager.common.exceptions.BusinessException;
 import org.apache.inlong.manager.common.util.CommonBeanUtils;
+import org.apache.inlong.manager.common.util.JsonUtils;
+import org.apache.inlong.manager.dao.entity.InlongStreamEntity;
 import org.apache.inlong.manager.dao.entity.StreamSourceEntity;
 import org.apache.inlong.manager.dao.mapper.StreamSourceEntityMapper;
 import org.apache.inlong.manager.pojo.source.DataAddTaskDTO;
@@ -35,7 +38,6 @@ import org.apache.inlong.manager.pojo.stream.StreamField;
 import org.apache.inlong.manager.service.source.AbstractSourceOperator;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.collections.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +46,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -114,23 +117,44 @@ public class FileSourceOperator extends AbstractSourceOperator {
         StreamSourceEntity sourceEntity = sourceMapper.selectById(request.getSourceId());
         try {
             List<StreamSourceEntity> dataAddTaskList = sourceMapper.selectByTaskMapId(sourceEntity.getId());
-            int dataAddTaskSize = CollectionUtils.isNotEmpty(dataAddTaskList) ? dataAddTaskList.size() : 0;
             FileSourceDTO dto = FileSourceDTO.getFromJson(sourceEntity.getExtParams());
-            dto.setStartTime(sourceRequest.getStartTime());
-            dto.setEndTime(sourceRequest.getEndTime());
+            dto.setDataTimeFrom(sourceRequest.getDataTimeFrom());
+            dto.setDataTimeTo(sourceRequest.getDataTimeTo());
             dto.setRetry(true);
+            if (request.getIncreaseAuditVersion()) {
+                dto.setAuditVersion(request.getAuditVersion());
+            }
+            dto.setFilterStreams(sourceRequest.getFilterStreams());
             StreamSourceEntity dataAddTaskEntity =
                     CommonBeanUtils.copyProperties(sourceEntity, StreamSourceEntity::new);
             dataAddTaskEntity.setId(null);
-            dataAddTaskEntity.setSourceName(sourceEntity.getSourceName() + "-" + (dataAddTaskSize + 1));
+            dataAddTaskEntity.setSourceName(
+                    sourceEntity.getSourceName() + "-" + request.getAuditVersion() + "-" + sourceEntity.getId());
             dataAddTaskEntity.setExtParams(objectMapper.writeValueAsString(dto));
             dataAddTaskEntity.setTaskMapId(sourceEntity.getId());
-            return sourceMapper.insert(dataAddTaskEntity);
+            Integer id = sourceMapper.insert(dataAddTaskEntity);
+            SourceRequest dataAddTaskRequest =
+                    CommonBeanUtils.copyProperties(dataAddTaskEntity, SourceRequest::new, true);
+            updateAgentTaskConfig(dataAddTaskRequest, operator);
+            return id;
         } catch (Exception e) {
             LOGGER.error("serialize extParams of File SourceDTO failure: ", e);
             throw new BusinessException(ErrorCodeEnum.SOURCE_INFO_INCORRECT,
                     String.format("serialize extParams of File SourceDTO failure: %s", e.getMessage()));
         }
+    }
+
+    @Override
+    public String updateDataConfig(String extParams, InlongStreamEntity streamEntity, DataConfig dataConfig) {
+        String dataSeparator = String.valueOf((char) Integer.parseInt(streamEntity.getDataSeparator()));
+        FileSourceDTO fileSourceDTO = JsonUtils.parseObject(extParams, FileSourceDTO.class);
+        if (Objects.nonNull(fileSourceDTO)) {
+            fileSourceDTO.setDataSeparator(dataSeparator);
+            dataConfig.setAuditVersion(fileSourceDTO.getAuditVersion());
+            fileSourceDTO.setDataContentStyle(streamEntity.getDataType());
+            extParams = JsonUtils.toJsonString(fileSourceDTO);
+        }
+        return extParams;
     }
 
 }

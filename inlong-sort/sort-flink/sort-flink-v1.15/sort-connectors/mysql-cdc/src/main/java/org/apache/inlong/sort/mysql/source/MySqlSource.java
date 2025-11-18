@@ -18,6 +18,7 @@
 package org.apache.inlong.sort.mysql.source;
 
 import org.apache.inlong.sort.mysql.RowDataDebeziumDeserializeSchema;
+import org.apache.inlong.sort.mysql.source.reader.MySqlSourceReader;
 
 import com.ververica.cdc.connectors.mysql.MySqlValidator;
 import com.ververica.cdc.connectors.mysql.debezium.DebeziumUtils;
@@ -33,7 +34,6 @@ import com.ververica.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory
 import com.ververica.cdc.connectors.mysql.source.enumerator.MySqlSourceEnumerator;
 import com.ververica.cdc.connectors.mysql.source.metrics.MySqlSourceReaderMetrics;
 import com.ververica.cdc.connectors.mysql.source.reader.MySqlRecordEmitter;
-import com.ververica.cdc.connectors.mysql.source.reader.MySqlSourceReader;
 import com.ververica.cdc.connectors.mysql.source.reader.MySqlSourceReaderContext;
 import com.ververica.cdc.connectors.mysql.source.reader.MySqlSplitReader;
 import com.ververica.cdc.connectors.mysql.source.split.MySqlSplit;
@@ -103,6 +103,7 @@ public class MySqlSource<T>
 
     private final MySqlSourceConfigFactory configFactory;
     private final DebeziumDeserializationSchema<T> deserializationSchema;
+    private final boolean enableLogReport;
 
     /**
      * Get a MySqlParallelSourceBuilder to build a {@link MySqlSource}.
@@ -116,9 +117,11 @@ public class MySqlSource<T>
 
     MySqlSource(
             MySqlSourceConfigFactory configFactory,
-            DebeziumDeserializationSchema<T> deserializationSchema) {
+            DebeziumDeserializationSchema<T> deserializationSchema,
+            boolean enableLogReport) {
         this.configFactory = configFactory;
         this.deserializationSchema = deserializationSchema;
+        this.enableLogReport = enableLogReport;
     }
 
     public MySqlSourceConfigFactory getConfigFactory() {
@@ -167,7 +170,9 @@ public class MySqlSource<T>
                         sourceConfig.isIncludeSchemaChanges()),
                 readerContext.getConfiguration(),
                 mySqlSourceReaderContext,
-                sourceConfig);
+                sourceConfig,
+                deserializationSchema,
+                enableLogReport);
     }
 
     @Override

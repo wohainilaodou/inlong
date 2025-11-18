@@ -17,9 +17,16 @@
 
 package org.apache.inlong.manager.service.resource.sort;
 
+import org.apache.inlong.audit.CdcIdEnum;
+import org.apache.inlong.audit.entity.AuditComponent;
+import org.apache.inlong.audit.entity.AuditInformation;
+import org.apache.inlong.audit.entity.AuditProxy;
+import org.apache.inlong.audit.entity.CdcType;
+import org.apache.inlong.audit.entity.FlowType;
 import org.apache.inlong.common.enums.IndicatorType;
 import org.apache.inlong.manager.common.consts.InlongConstants;
 import org.apache.inlong.manager.common.consts.SinkType;
+import org.apache.inlong.manager.common.exceptions.BusinessException;
 import org.apache.inlong.manager.common.util.CommonBeanUtils;
 import org.apache.inlong.manager.pojo.group.InlongGroupInfo;
 import org.apache.inlong.manager.pojo.sink.StreamSink;
@@ -40,12 +47,12 @@ import org.apache.inlong.sort.protocol.node.Node;
 import org.apache.inlong.sort.protocol.node.transform.TransformNode;
 import org.apache.inlong.sort.protocol.transformation.relation.NodeRelation;
 
+import com.google.common.base.Joiner;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -69,8 +76,8 @@ public class SortFlinkConfigOperator implements SortConfigOperator {
     private static final Logger LOGGER = LoggerFactory.getLogger(SortFlinkConfigOperator.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    @Value("${metrics.audit.proxy.hosts:127.0.0.1}")
-    private String auditHost;
+    private static final String CDC_AUDIT_KEY = "metrics.changelog.audit.key";
+
     @Autowired
     private StreamSourceService sourceService;
     @Autowired
@@ -298,8 +305,24 @@ public class SortFlinkConfigOperator implements SortConfigOperator {
     private void addAuditId(Map<String, Object> properties, String type, IndicatorType indicatorType) {
         try {
             String auditId = auditService.getAuditId(type, indicatorType);
+            List<AuditProxy> auditProxyList = auditService.getAuditProxy(AuditComponent.SORT.getComponent());
             properties.putIfAbsent("metrics.audit.key", auditId);
-            properties.putIfAbsent("metrics.audit.proxy.hosts", auditHost);
+            properties.putIfAbsent("metrics.audit.proxy.hosts",
+                    Joiner.on(InlongConstants.AMPERSAND).join(auditProxyList));
+            List<AuditInformation> cdcAuditInfoList = auditService.getCdcAuditInfoList(type, indicatorType);
+            FlowType flowType = indicatorType.getCode() % 2 == 0 ? FlowType.INPUT : FlowType.OUTPUT;
+            List<String> cdcAuditIdList =
+                    cdcAuditInfoList.stream().map(v -> {
+                        for (CdcType cdcType : CdcType.values()) {
+                            if (Objects.equals(CdcIdEnum.getCdcId(type, flowType, cdcType), v.getAuditId())) {
+                                return cdcType.name() + InlongConstants.EQUAL + v.getAuditId();
+                            }
+                        }
+                        throw new BusinessException("current audit id can not find cdc audit information");
+                    }).collect(Collectors.toList());
+            if (CollectionUtils.isNotEmpty(cdcAuditIdList)) {
+                properties.putIfAbsent(CDC_AUDIT_KEY, Joiner.on(InlongConstants.AMPERSAND).join(cdcAuditIdList));
+            }
         } catch (Exception e) {
             LOGGER.error("Current type ={} is not set auditId", type);
         }

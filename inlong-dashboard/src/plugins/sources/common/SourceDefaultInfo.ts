@@ -97,6 +97,14 @@ export class SourceDefaultInfo implements DataWithBackend, RenderRow, RenderList
   sourceType: string;
 
   @FieldDecorator({
+    type: 'select',
+    hidden: true,
+  })
+  @IngestionField()
+  @I18n('meta.Sources.File.ClusterName')
+  readonly clusterTag: string;
+
+  @FieldDecorator({
     type: 'input',
     rules: [
       { required: true },
@@ -117,6 +125,10 @@ export class SourceDefaultInfo implements DataWithBackend, RenderRow, RenderList
   @SyncMoveDbField()
   @I18n('meta.Sources.Name')
   sourceName: string;
+
+  @ColumnDecorator()
+  @I18n('meta.Sources.ClusterName')
+  readonly inlongClusterName: string;
 
   @FieldDecorator({
     type: 'select',
@@ -189,6 +201,7 @@ export class SourceDefaultInfo implements DataWithBackend, RenderRow, RenderList
               label: item.label,
               value: item.value,
               image: loadImage(item.label),
+              isSmallImage: item.label === 'SQL' || item.label === 'COS' || item.label === 'File',
             })),
         });
       }
@@ -210,6 +223,7 @@ export class SourceDefaultInfo implements DataWithBackend, RenderRow, RenderList
               label: item.label,
               value: item.value,
               image: loadImage(item.label),
+              isSmallImage: item.label === 'SQL' || item.label === 'COS' || item.label === 'File',
             })),
         });
       }

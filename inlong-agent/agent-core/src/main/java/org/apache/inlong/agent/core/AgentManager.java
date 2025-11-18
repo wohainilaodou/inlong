@@ -22,11 +22,11 @@ import org.apache.inlong.agent.conf.AgentConfiguration;
 import org.apache.inlong.agent.conf.ProfileFetcher;
 import org.apache.inlong.agent.constant.AgentConstants;
 import org.apache.inlong.agent.core.task.TaskManager;
+import org.apache.inlong.common.pojo.agent.AgentConfigInfo;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.lang.reflect.Constructor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,6 +43,7 @@ public class AgentManager extends AbstractDaemon {
     private final ProfileFetcher fetcher;
     private final AgentConfiguration conf;
     private final ExecutorService agentConfMonitor;
+    private static AgentConfigInfo agentConfigInfo;
 
     public AgentManager() {
         conf = AgentConfiguration.getAgentConf();
@@ -50,6 +51,17 @@ public class AgentManager extends AbstractDaemon {
         taskManager = new TaskManager();
         fetcher = initFetcher(this);
         heartbeatManager = HeartbeatManager.getInstance(this);
+    }
+
+    public static AgentConfigInfo getAgentConfigInfo() {
+        return agentConfigInfo;
+    }
+
+    public void subNewAgentConfigInfo(AgentConfigInfo info) {
+        if (info == null) {
+            return;
+        }
+        agentConfigInfo = info;
     }
 
     /**
@@ -79,14 +91,10 @@ public class AgentManager extends AbstractDaemon {
                 while (true) {
                     try {
                         Thread.sleep(10 * 1000); // 10s check
-                        File file = new File(
-                                conf.getConfigLocation(AgentConfiguration.DEFAULT_CONFIG_FILE).getFile());
-                        if (!file.exists()) {
-                            continue;
-                        }
-                        if (file.lastModified() > lastModifiedTime) {
+                        long maxLastModifiedTime = conf.maxLastModifiedTime();
+                        if (maxLastModifiedTime > lastModifiedTime) {
                             conf.reloadFromLocalPropertiesFile();
-                            lastModifiedTime = file.lastModified();
+                            lastModifiedTime = maxLastModifiedTime;
                         }
                     } catch (InterruptedException e) {
                         LOGGER.error("Interrupted when flush agent conf.", e);

@@ -71,6 +71,12 @@ public class SinkType extends StreamType {
     @SupportSortType(sortType = SortType.SORT_FLINK)
     public static final String TUBEMQ = "TUBEMQ";
 
+    @SupportSortType(sortType = SortType.SORT_STANDALONE)
+    public static final String HTTP = "HTTP";
+
+    @SupportSortType(sortType = SortType.SORT_FLINK)
+    public static final String OCEANBASE = "OCEANBASE";
+
     /**
      * Tencent cloud log service
      * Details: <a href="https://www.tencentcloud.com/products/cls">CLS</a>
@@ -85,6 +91,7 @@ public class SinkType extends StreamType {
     public static final Set<String> SORT_STANDALONE_SINK = new HashSet<>();
 
     static {
+        SINK_TO_CLUSTER.put(HTTP, ClusterType.SORT_HTTP);
         SINK_TO_CLUSTER.put(CLS, ClusterType.SORT_CLS);
         SINK_TO_CLUSTER.put(ES, ClusterType.SORT_ES);
         SINK_TO_CLUSTER.put(PULSAR, ClusterType.SORT_PULSAR);

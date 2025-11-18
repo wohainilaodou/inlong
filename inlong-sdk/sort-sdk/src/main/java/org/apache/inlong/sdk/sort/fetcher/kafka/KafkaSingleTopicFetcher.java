@@ -160,7 +160,7 @@ public class KafkaSingleTopicFetcher extends SingleTopicFetcher {
     private void createKafkaConsumer(String bootstrapServers) {
         Properties properties = new Properties();
         properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        properties.put(ConsumerConfig.GROUP_ID_CONFIG, context.getConfig().getSortTaskId());
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, context.getConfig().getSubscription());
         properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
                 ByteArrayDeserializer.class.getName());
         properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
@@ -309,5 +309,17 @@ public class KafkaSingleTopicFetcher extends SingleTopicFetcher {
                 }
             }
         }
+    }
+
+    /**
+     * negativeAck Offset
+     *
+     * @param msgOffset String
+     */
+    @Override
+    public void negativeAck(String msgOffset) throws Exception {
+        this.sleepTime = TimeUnit.MILLISECONDS.convert(context.getConfig().getSendFailPauseConsumerMinutes(),
+                TimeUnit.MINUTES);
+        LOGGER.error("negativeAck,topic:{}, sleep {} minutes.", this.topic.getTopicKey(), this.sleepTime);
     }
 }

@@ -17,13 +17,14 @@
  * under the License.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Button, message, Modal } from 'antd';
 import i18n from '@/i18n';
 import FormGenerator, { useForm } from '@/ui/components/FormGenerator';
 import { useRequest, useUpdateEffect } from '@/ui/hooks';
 import request from '@/core/utils/request';
 import { ModalProps } from 'antd/es/modal';
+import rulesPattern from '@/core/utils/pattern';
 
 export interface Props extends ModalProps {
   id?: string;
@@ -32,7 +33,7 @@ export interface Props extends ModalProps {
 
 const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
   const [form] = useForm();
-
+  const [isCreate, setCreate] = useState(false);
   const content = useMemo(() => {
     return [
       {
@@ -45,7 +46,13 @@ const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
         type: 'input',
         label: i18n.t('pages.ModuleAgent.Config.Version'),
         name: 'version',
-        rules: [{ required: true }],
+        rules: [
+          {
+            required: true,
+            pattern: rulesPattern.version,
+            message: i18n.t('meta.Sources.File.VersionRule'),
+          },
+        ],
       },
       {
         type: 'select',
@@ -84,6 +91,10 @@ const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
         type: 'textarea',
         label: i18n.t('pages.ModuleAgent.Config.CheckCommand'),
         name: 'checkCommand',
+        initialValue:
+          type === 'INSTALLER'
+            ? 'echo "installer"'
+            : "ps aux | grep core.AgentMain | grep java | grep -v grep | awk '{print $2}'",
         props: {
           showCount: true,
           maxLength: 1000,
@@ -93,6 +104,10 @@ const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
         type: 'textarea',
         label: i18n.t('pages.ModuleAgent.Config.InstallCommand'),
         name: 'installCommand',
+        initialValue:
+          type === 'INSTALLER'
+            ? 'echo ""'
+            : 'cd ~/inlong/inlong-agent/bin;sh agent.sh stop;rm -rf ~/inlong/inlong-agent-temp;mkdir -p ~/inlong/inlong-agent-temp;cp -r ~/inlong/inlong-agent/.localdb ',
         props: {
           showCount: true,
           maxLength: 1000,
@@ -102,6 +117,8 @@ const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
         type: 'textarea',
         label: i18n.t('pages.ModuleAgent.Config.StartCommand'),
         name: 'startCommand',
+        initialValue:
+          type === 'INSTALLER' ? 'echo ""' : 'cd ~/inlong/inlong-agent/bin;sh agent.sh start',
         props: {
           showCount: true,
           maxLength: 1000,
@@ -111,6 +128,8 @@ const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
         type: 'textarea',
         label: i18n.t('pages.ModuleAgent.Config.StopCommand'),
         name: 'stopCommand',
+        initialValue:
+          type === 'INSTALLER' ? 'echo ""' : 'cd ~/inlong/inlong-agent/bin;sh agent.sh stop',
         props: {
           showCount: true,
           maxLength: 1000,
@@ -120,6 +139,7 @@ const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
         type: 'textarea',
         label: i18n.t('pages.ModuleAgent.Config.UninstallCommand'),
         name: 'uninstallCommand',
+        initialValue: type === 'INSTALLER' ? 'echo ""' : 'echo empty uninstall  cmd',
         props: {
           showCount: true,
           maxLength: 1000,
@@ -160,7 +180,11 @@ const Comp: React.FC<Props> = ({ id, type, ...modalProps }) => {
   useUpdateEffect(() => {
     if (modalProps.open) {
       if (id) {
+        setCreate(false);
         getData(id);
+      } else {
+        setCreate(true);
+        // here need a data which id is 1 to init create form
       }
     } else {
       form.resetFields();

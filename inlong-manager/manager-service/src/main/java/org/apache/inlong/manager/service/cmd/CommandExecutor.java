@@ -25,16 +25,24 @@ public interface CommandExecutor {
 
     CommandResult exec(String cmd) throws Exception;
 
+    CommandResult execSSHKeyGeneration() throws Exception;
+
     CommandResult execRemote(AgentClusterNodeRequest clusterNodeRequest, String cmd) throws Exception;
 
     CommandResult modifyConfig(AgentClusterNodeRequest clusterNodeRequest, Map<String, String> configMap,
             String confPath) throws Exception;
 
-    CommandResult tarPackage(AgentClusterNodeRequest clusterNodeRequest, String fileName, String tarPath)
-            throws Exception;
+    CommandResult tarPackage(AgentClusterNodeRequest clusterNodeRequest, String fileName, String sourcePath,
+            String tarPath) throws Exception;
 
     CommandResult downLoadPackage(AgentClusterNodeRequest clusterNodeRequest, String downLoadPath, String downLoadUrl)
             throws Exception;
 
     CommandResult mkdir(AgentClusterNodeRequest clusterNodeRequest, String path) throws Exception;
+
+    CommandResult rmDir(AgentClusterNodeRequest clusterNodeRequest, String path) throws Exception;
+
+    CommandResult cpDir(AgentClusterNodeRequest clusterNodeRequest, String sourcePath, String targetPath)
+            throws Exception;
+
 }

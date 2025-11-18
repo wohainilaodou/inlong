@@ -55,6 +55,8 @@ public class ClientFactory {
     private final AuditClient auditClient;
     private final InlongTenantClient inlongTenantClient;
     private final InlongTenantRoleClient inlongTenantRoleClient;
+    private final InLongScheduleClient inLongScheduleClient;
+    private final AuditAlertRuleClient auditAlertRuleClient;
 
     public ClientFactory(ClientConfiguration configuration) {
         groupClient = new InlongGroupClient(configuration);
@@ -74,5 +76,7 @@ public class ClientFactory {
         auditClient = new AuditClient(configuration);
         inlongTenantClient = new InlongTenantClient(configuration);
         inlongTenantRoleClient = new InlongTenantRoleClient(configuration);
+        inLongScheduleClient = new InLongScheduleClient(configuration);
+        auditAlertRuleClient = new AuditAlertRuleClient(configuration);
     }
 }

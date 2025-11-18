@@ -17,16 +17,20 @@
 
 package org.apache.inlong.sort.standalone.sink.pulsar;
 
-import org.apache.inlong.common.pojo.sort.SortClusterConfig;
-import org.apache.inlong.common.pojo.sort.SortTaskConfig;
+import org.apache.inlong.common.pojo.sort.ClusterTagConfig;
+import org.apache.inlong.common.pojo.sort.TaskConfig;
 import org.apache.inlong.common.pojo.sort.node.PulsarNodeConfig;
+import org.apache.inlong.common.pojo.sortstandalone.SortTaskConfig;
 import org.apache.inlong.sort.standalone.channel.ProfileEvent;
 import org.apache.inlong.sort.standalone.config.holder.CommonPropertiesHolder;
+import org.apache.inlong.sort.standalone.config.holder.SortClusterConfigHolder;
 import org.apache.inlong.sort.standalone.config.holder.v2.SortConfigHolder;
+import org.apache.inlong.sort.standalone.config.pojo.CacheClusterConfig;
 import org.apache.inlong.sort.standalone.config.pojo.InlongId;
+import org.apache.inlong.sort.standalone.metrics.SortConfigMetricReporter;
 import org.apache.inlong.sort.standalone.metrics.SortMetricItem;
 import org.apache.inlong.sort.standalone.metrics.audit.AuditUtils;
-import org.apache.inlong.sort.standalone.sink.v2.SinkContext;
+import org.apache.inlong.sort.standalone.sink.SinkContext;
 import org.apache.inlong.sort.standalone.utils.InlongLoggerFactory;
 
 import org.apache.commons.lang3.ClassUtils;
@@ -36,6 +40,7 @@ import org.slf4j.Logger;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -46,6 +51,7 @@ public class PulsarFederationSinkContext extends SinkContext {
     public static final String KEY_EVENT_HANDLER = "eventHandler";
     private Map<String, PulsarIdConfig> idConfigMap = new ConcurrentHashMap<>();
     private PulsarNodeConfig pulsarNodeConfig;
+    private CacheClusterConfig cacheClusterConfig;
 
     public PulsarFederationSinkContext(String sinkName, Context context, Channel channel) {
         super(sinkName, context, channel);
@@ -53,34 +59,74 @@ public class PulsarFederationSinkContext extends SinkContext {
 
     public void reload() {
         try {
-            SortTaskConfig newSortTaskConfig = SortConfigHolder.getTaskConfig(taskName);
-            if (newSortTaskConfig == null) {
+            TaskConfig newTaskConfig = SortConfigHolder.getTaskConfig(taskName);
+            SortTaskConfig newSortTaskConfig = SortClusterConfigHolder.getTaskConfig(taskName);
+            if (newTaskConfig == null && newSortTaskConfig == null) {
                 LOG.error("newSortTaskConfig is null.");
                 return;
             }
-            if (this.sortTaskConfig != null && this.sortTaskConfig.equals(newSortTaskConfig)) {
+            if ((this.taskConfig != null && this.taskConfig.equals(newTaskConfig))
+                    && (this.sortTaskConfig != null && this.sortTaskConfig.equals(newSortTaskConfig))) {
                 LOG.info("Same sortTaskConfig, do nothing.");
                 return;
             }
-            this.sortTaskConfig = newSortTaskConfig;
 
-            PulsarNodeConfig requestNodeConfig = (PulsarNodeConfig) newSortTaskConfig.getNodeConfig();
-            if (pulsarNodeConfig == null || requestNodeConfig.getVersion() > pulsarNodeConfig.getVersion()) {
-                this.pulsarNodeConfig = requestNodeConfig;
+            if (newTaskConfig != null) {
+                PulsarNodeConfig requestNodeConfig = (PulsarNodeConfig) newTaskConfig.getNodeConfig();
+                if (pulsarNodeConfig == null || requestNodeConfig.getVersion() > pulsarNodeConfig.getVersion()) {
+                    this.pulsarNodeConfig = requestNodeConfig;
+                }
             }
 
-            this.idConfigMap = this.sortTaskConfig.getClusters()
-                    .stream()
-                    .map(SortClusterConfig::getDataFlowConfigs)
-                    .flatMap(Collection::stream)
-                    .map(PulsarIdConfig::create)
-                    .collect(Collectors.toMap(
-                            config -> InlongId.generateUid(config.getInlongGroupId(), config.getInlongStreamId()),
-                            v -> v,
-                            (v1, v2) -> v1));
+            this.taskConfig = newTaskConfig;
+            this.sortTaskConfig = newSortTaskConfig;
+
+            CacheClusterConfig clusterConfig = new CacheClusterConfig();
+            clusterConfig.setClusterName(this.taskName);
+            if (this.sortTaskConfig != null) {
+                clusterConfig.setParams(this.sortTaskConfig.getSinkParams());
+            }
+            this.cacheClusterConfig = clusterConfig;
+
+            Map<String, PulsarIdConfig> fromTaskConfig = fromTaskConfig(taskConfig);
+            Map<String, PulsarIdConfig> fromSortTaskConfig = fromSortTaskConfig(sortTaskConfig);
+            SortConfigMetricReporter.reportClusterDiff(clusterId, taskName, fromTaskConfig, fromSortTaskConfig);
+            idConfigMap = unifiedConfiguration ? fromTaskConfig : fromSortTaskConfig;
         } catch (Throwable e) {
             LOG.error(e.getMessage(), e);
         }
+    }
+
+    public Map<String, PulsarIdConfig> fromTaskConfig(TaskConfig taskConfig) {
+        if (taskConfig == null) {
+            return new HashMap<>();
+        }
+        return taskConfig.getClusterTagConfigs()
+                .stream()
+                .map(ClusterTagConfig::getDataFlowConfigs)
+                .flatMap(Collection::stream)
+                .map(PulsarIdConfig::create)
+                .collect(Collectors.toMap(
+                        config -> InlongId.generateUid(config.getInlongGroupId(), config.getInlongStreamId()),
+                        v -> v,
+                        (v1, v2) -> v1));
+    }
+
+    public Map<String, PulsarIdConfig> fromSortTaskConfig(SortTaskConfig sortTaskConfig) {
+        if (sortTaskConfig == null) {
+            return new HashMap<>();
+        }
+        Map<String, PulsarIdConfig> newIdConfigMap = new ConcurrentHashMap<>();
+        List<Map<String, String>> idList = sortTaskConfig.getIdParams();
+        for (Map<String, String> idParam : idList) {
+            try {
+                PulsarIdConfig idConfig = new PulsarIdConfig(idParam);
+                newIdConfigMap.put(idConfig.getUid(), idConfig);
+            } catch (Exception e) {
+                LOG.error("fail to parse pulsar id config", e);
+            }
+        }
+        return newIdConfigMap;
     }
 
     public String getTopic(String uid) {
@@ -101,6 +147,10 @@ public class PulsarFederationSinkContext extends SinkContext {
 
     public PulsarNodeConfig getNodeConfig() {
         return pulsarNodeConfig;
+    }
+
+    public CacheClusterConfig getCacheClusterConfig() {
+        return cacheClusterConfig;
     }
 
     public void addSendMetric(ProfileEvent currentRecord, String topic) {

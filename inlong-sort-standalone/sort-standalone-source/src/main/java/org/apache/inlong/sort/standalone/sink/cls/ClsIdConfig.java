@@ -18,14 +18,17 @@
 package org.apache.inlong.sort.standalone.sink.cls;
 
 import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.DataTypeConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.field.FieldConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.sink.ClsSinkConfig;
 import org.apache.inlong.common.pojo.sort.node.ClsNodeConfig;
+import org.apache.inlong.sort.standalone.config.pojo.IdConfig;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -33,15 +36,15 @@ import java.util.stream.Collectors;
 /**
  * Cls config of each uid.
  */
+@EqualsAndHashCode(callSuper = true)
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ClsIdConfig {
+@SuperBuilder
+public class ClsIdConfig extends IdConfig {
 
-    private String inlongGroupId;
-    private String inlongStreamId;
     private String separator = "|";
+    private DataTypeConfig dataTypeConfig;
     private String endpoint;
     private String secretId;
     private String secretKey;
@@ -62,6 +65,7 @@ public class ClsIdConfig {
                 .contentOffset(sinkConfig.getContentOffset())
                 .fieldOffset(sinkConfig.getFieldOffset())
                 .separator(sinkConfig.getSeparator())
+                .dataTypeConfig(dataFlowConfig.getSourceConfig().getDataTypeConfig())
                 .fieldList(fields)
                 .topicId(sinkConfig.getTopicId())
                 .endpoint(nodeConfig.getEndpoint())

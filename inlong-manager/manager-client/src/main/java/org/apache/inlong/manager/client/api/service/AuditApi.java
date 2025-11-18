@@ -37,5 +37,4 @@ public interface AuditApi {
 
     @POST("audit/refreshCache")
     Call<Response<Boolean>> refreshCache();
-
 }

@@ -17,14 +17,32 @@
 
 package org.apache.inlong.sdk.transform.decode;
 
-import java.util.Map;
+import org.apache.inlong.sdk.transform.pojo.FieldInfo;
+import org.apache.inlong.sdk.transform.process.Context;
+
+import com.google.common.collect.ImmutableList;
+import lombok.Getter;
+
+import java.util.List;
 
 /**
  * SourceDecoder
  */
-public interface SourceDecoder {
+@Getter
+public abstract class SourceDecoder<Input> {
 
-    SourceData decode(byte[] srcBytes, Map<String, Object> extParams);
+    protected final List<FieldInfo> fields;
 
-    SourceData decode(String srcString, Map<String, Object> extParams);
+    public SourceDecoder() {
+        this(ImmutableList.of());
+    }
+
+    public SourceDecoder(List<FieldInfo> fields) {
+        this.fields = fields;
+    }
+
+    public abstract SourceData decode(byte[] srcBytes, Context context);
+
+    public abstract SourceData decode(Input input, Context context);
+
 }

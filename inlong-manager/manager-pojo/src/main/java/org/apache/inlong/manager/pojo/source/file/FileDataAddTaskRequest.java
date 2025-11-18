@@ -27,6 +27,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
+import java.util.List;
+
 @Data
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true)
@@ -34,10 +36,7 @@ import lombok.ToString;
 @ApiModel(value = "File data add task request")
 public class FileDataAddTaskRequest extends DataAddTaskRequest {
 
-    @ApiModelProperty("Start time")
-    private Long startTime;
-
-    @ApiModelProperty("End time")
-    private Long endTime;
+    @ApiModelProperty("filterStreams")
+    private List<String> filterStreams;
 
 }

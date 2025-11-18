@@ -22,7 +22,7 @@
     <parent>
         <groupId>org.apache.inlong</groupId>
         <artifactId>sort-connectors-v1.13</artifactId>
-        <version>1.13.0-SNAPSHOT</version>
+        <version>2.4.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>sort-connector-hudi</artifactId>
@@ -101,6 +101,7 @@
                         </goals>
                         <phase>package</phase>
                         <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <artifactSet>
                                 <includes>
                                     <include>org.apache.hudi:*</include>
@@ -119,6 +120,12 @@
                                         <include>org/apache/inlong/**</include>
                                         <include>META-INF/services/org.apache.flink.table.factories.Factory</include>
                                     </includes>
+                                </filter>
+                                <filter>
+                                    <artifact>com.fasterxml.jackson.core:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/versions/**</exclude>
+                                    </excludes>
                                 </filter>
                             </filters>
                         </configuration>

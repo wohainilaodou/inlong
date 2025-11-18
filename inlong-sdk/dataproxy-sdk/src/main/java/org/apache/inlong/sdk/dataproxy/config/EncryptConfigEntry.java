@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URLEncoder;
 import java.security.interfaces.RSAPublicKey;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class EncryptConfigEntry implements java.io.Serializable {
@@ -35,7 +36,7 @@ public class EncryptConfigEntry implements java.io.Serializable {
     private String pubKey;
     private byte[] aesKey;
     private String rsaEncryptedKey;
-    private AtomicLong lastUpdateTime = new AtomicLong(0);
+    private final AtomicLong lastUpdateTime = new AtomicLong(0);
 
     public EncryptConfigEntry(final String userName, final String version, final String pubKey) {
         this.userName = userName;
@@ -43,7 +44,6 @@ public class EncryptConfigEntry implements java.io.Serializable {
         this.pubKey = pubKey;
         this.aesKey = null;
         this.rsaEncryptedKey = null;
-        // this.rsaKey = EncryptUtil.loadPublicKeyByText(pubKey);
     }
 
     public String getVersion() {
@@ -123,7 +123,7 @@ public class EncryptConfigEntry implements java.io.Serializable {
 
     @Override
     public boolean equals(Object other) {
-        if (other == null || !(other instanceof EncryptConfigEntry)) {
+        if (!(other instanceof EncryptConfigEntry)) {
             return false;
         }
         if (other == this) {
@@ -132,7 +132,7 @@ public class EncryptConfigEntry implements java.io.Serializable {
         EncryptConfigEntry info = (EncryptConfigEntry) other;
         return (this.userName.equals(info.getUserName()))
                 && (this.version.equals(info.getVersion()))
-                && (this.pubKey == info.getPubKey());
+                && (Objects.equals(this.pubKey, info.getPubKey()));
     }
 
     public String toString() {

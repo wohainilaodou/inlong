@@ -27,6 +27,7 @@ import org.apache.inlong.manager.pojo.common.Response;
 import org.apache.inlong.manager.pojo.sink.SinkPageRequest;
 import org.apache.inlong.manager.pojo.sink.SinkRequest;
 import org.apache.inlong.manager.pojo.sink.StreamSink;
+import org.apache.inlong.manager.pojo.sink.TransformParseRequest;
 import org.apache.inlong.manager.pojo.user.LoginUserUtils;
 import org.apache.inlong.manager.service.operationlog.OperationLog;
 import org.apache.inlong.manager.service.sink.StreamSinkService;
@@ -45,6 +46,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Open InLong Stream Sink controller
@@ -64,7 +66,7 @@ public class OpenStreamSinkController {
     public Response<StreamSink> get(@PathVariable Integer id) {
         Preconditions.expectNotNull(id, ErrorCodeEnum.INVALID_PARAMETER, "sinkId cannot be null");
         Preconditions.expectNotNull(LoginUserUtils.getLoginUser(), ErrorCodeEnum.LOGIN_USER_EMPTY);
-        return Response.success(sinkService.get(id, LoginUserUtils.getLoginUser()));
+        return Response.success(sinkService.get(id));
     }
 
     @RequestMapping(value = "/sink/list", method = RequestMethod.POST)
@@ -81,7 +83,7 @@ public class OpenStreamSinkController {
     public Response<Integer> save(@Validated @RequestBody SinkRequest request) {
         Preconditions.expectNotNull(request, ErrorCodeEnum.INVALID_PARAMETER, "request cannot be null");
         Preconditions.expectNotNull(LoginUserUtils.getLoginUser(), ErrorCodeEnum.LOGIN_USER_EMPTY);
-        return Response.success(sinkService.save(request, LoginUserUtils.getLoginUser()));
+        return Response.success(sinkService.save(request, LoginUserUtils.getLoginUser().getName()));
     }
 
     @RequestMapping(value = "/sink/batchSave", method = RequestMethod.POST)
@@ -97,7 +99,7 @@ public class OpenStreamSinkController {
     public Response<Boolean> update(@Validated(UpdateByIdValidation.class) @RequestBody SinkRequest request) {
         Preconditions.expectNotNull(request, ErrorCodeEnum.INVALID_PARAMETER, "request cannot be null");
         Preconditions.expectNotNull(LoginUserUtils.getLoginUser(), ErrorCodeEnum.LOGIN_USER_EMPTY);
-        return Response.success(sinkService.update(request, LoginUserUtils.getLoginUser()));
+        return Response.success(sinkService.update(request, LoginUserUtils.getLoginUser().getName()));
     }
 
     @RequestMapping(value = "/sink/delete/{id}", method = RequestMethod.DELETE)
@@ -111,6 +113,12 @@ public class OpenStreamSinkController {
             @RequestParam(required = false, defaultValue = "false") boolean startProcess) {
         Preconditions.expectNotNull(id, ErrorCodeEnum.INVALID_PARAMETER, "sinkId cannot be null");
         Preconditions.expectNotNull(LoginUserUtils.getLoginUser(), ErrorCodeEnum.LOGIN_USER_EMPTY);
-        return Response.success(sinkService.delete(id, startProcess, LoginUserUtils.getLoginUser()));
+        return Response.success(sinkService.delete(id, startProcess, LoginUserUtils.getLoginUser().getName()));
+    }
+
+    @RequestMapping(value = "/sink/parseTransform", method = RequestMethod.POST)
+    @ApiOperation(value = "parse transform sql from data")
+    public Response<Map<String, Object>> parseTransform(@RequestBody TransformParseRequest request) {
+        return Response.success(sinkService.parseTransform(request));
     }
 }

@@ -49,8 +49,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -114,7 +116,7 @@ public class TemplateServiceImpl implements TemplateService {
         TemplateEntity templateEntity = templateEntityMapper.selectByName(templateName);
         if (templateEntity == null) {
             LOGGER.error("inlong template not found by template name={}", templateName);
-            throw new BusinessException(ErrorCodeEnum.TEMPLATE_INFO_INCORRECT);
+            throw new BusinessException(ErrorCodeEnum.TEMPLATE_NOT_FOUND);
         }
 
         TemplateInfo templateInfo = CommonBeanUtils.copyProperties(templateEntity, TemplateInfo::new);
@@ -180,10 +182,10 @@ public class TemplateServiceImpl implements TemplateService {
         TemplateEntity templateEntity = templateEntityMapper.selectByName(templateName);
         if (templateEntity == null) {
             LOGGER.error("inlong template not found by template name={}", templateName);
-            throw new BusinessException(ErrorCodeEnum.TEMPLATE_INFO_INCORRECT);
+            throw new BusinessException(ErrorCodeEnum.TEMPLATE_NOT_FOUND);
         }
 
-        if (templateEntity.getInCharges().contains(operator)) {
+        if (!templateEntity.getInCharges().contains(operator)) {
             throw new BusinessException(ErrorCodeEnum.TEMPLATE_PERMISSION_DENIED,
                     String.format("user [%s] has no update privilege for the inlong temlate", operator));
         }
@@ -204,7 +206,36 @@ public class TemplateServiceImpl implements TemplateService {
         }
         // update template fields
         updateField(request);
-
+        if (CollectionUtils.isNotEmpty(request.getTenantList())) {
+            Set<String> updatedTenants = new HashSet<>(request.getTenantList());
+            List<TenantTemplateEntity> tenantList = tenantTemplateEntityMapper.selectByTemplateName(templateName);
+            // remove
+            tenantList.stream()
+                    .filter(entity -> !updatedTenants.contains(entity.getTenant()))
+                    .forEach(entity -> {
+                        try {
+                            this.deleteTenantTemplate(entity.getId(), operator);
+                        } catch (Exception e) {
+                            LOGGER.error(e.getMessage());
+                        }
+                    });
+            // add
+            Set<String> currentTenants = tenantList.stream()
+                    .map(TenantTemplateEntity::getTenant)
+                    .collect(Collectors.toSet());
+            TenantTemplateRequest tagRequest = new TenantTemplateRequest();
+            tagRequest.setTemplateName(templateName);
+            updatedTenants.stream()
+                    .filter(tenant -> !currentTenants.contains(tenant))
+                    .forEach(tenant -> {
+                        try {
+                            tagRequest.setTenant(tenant);
+                            this.saveTenantTemplate(tagRequest, operator);
+                        } catch (Exception e) {
+                            LOGGER.error(e.getMessage());
+                        }
+                    });
+        }
         LOGGER.info("success to update inlong template for template name={}", templateName);
         return true;
 
@@ -221,7 +252,7 @@ public class TemplateServiceImpl implements TemplateService {
             throw new BusinessException(ErrorCodeEnum.TEMPLATE_NOT_FOUND);
         }
 
-        if (entity.getInCharges().contains(operator)) {
+        if (!entity.getInCharges().contains(operator)) {
             throw new BusinessException(ErrorCodeEnum.TEMPLATE_PERMISSION_DENIED,
                     String.format("user [%s] has no delete privilege for the inlong template", operator));
         }
@@ -253,7 +284,7 @@ public class TemplateServiceImpl implements TemplateService {
             throw new BusinessException(ErrorCodeEnum.TEMPLATE_NOT_FOUND);
         }
 
-        if (entity.getInCharges().contains(operator)) {
+        if (!entity.getInCharges().contains(operator)) {
             throw new BusinessException(ErrorCodeEnum.TEMPLATE_PERMISSION_DENIED,
                     String.format("user [%s] has no delete privilege for the inlong template", operator));
         }
@@ -329,6 +360,25 @@ public class TemplateServiceImpl implements TemplateService {
         LOGGER.info("success to save tenant tag, tenant={}, template name={}", request.getTenant(),
                 request.getTemplateName());
         return entity.getId();
+    }
+
+    public Boolean deleteTenantTemplate(Integer id, String operator) {
+        LOGGER.debug("start to delete tenant template with id={}", id);
+        TenantTemplateEntity entity = tenantTemplateEntityMapper.selectByPrimaryKey(id);
+        Preconditions.expectNotNull(entity, ErrorCodeEnum.RECORD_NOT_FOUND.getMessage());
+
+        entity.setModifier(operator);
+        entity.setIsDeleted(id);
+
+        int rowCount = tenantTemplateEntityMapper.updateByIdSelective(entity);
+        if (rowCount != InlongConstants.AFFECTED_ONE_ROW) {
+            LOGGER.error("tenant template has already deleted for tenant={} tag={}",
+                    entity.getTenant(), entity.getTemplateName());
+            throw new BusinessException(ErrorCodeEnum.CONFIG_EXPIRED);
+        }
+        LOGGER.info("success to delete tenant template of tenant={} tag={}, user={}", entity.getTenant(),
+                entity.getTemplateName(), operator);
+        return true;
     }
 
 }

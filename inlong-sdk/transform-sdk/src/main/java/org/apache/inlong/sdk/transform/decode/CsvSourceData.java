@@ -17,6 +17,8 @@
 
 package org.apache.inlong.sdk.transform.decode;
 
+import org.apache.inlong.sdk.transform.process.Context;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -26,16 +28,17 @@ import java.util.Map;
  * CsvSourceData
  * 
  */
-public class CsvSourceData implements SourceData {
+public class CsvSourceData extends AbstractSourceData {
 
-    private List<Map<String, String>> rows = new ArrayList<>();
+    private List<Map<String, Object>> rows = new ArrayList<>();
 
-    private Map<String, String> currentRow;
+    private Map<String, Object> currentRow;
 
-    public CsvSourceData() {
+    public CsvSourceData(Context context) {
+        this.context = context;
     }
 
-    public void putField(String fieldName, String fieldValue) {
+    public void putField(String fieldName, Object fieldValue) {
         this.currentRow.put(fieldName, fieldValue);
     }
 
@@ -50,11 +53,14 @@ public class CsvSourceData implements SourceData {
     }
 
     @Override
-    public String getField(int rowNum, String fieldName) {
+    public Object getField(int rowNum, String fieldName) {
         if (rowNum >= this.rows.size()) {
             return null;
         }
-        Map<String, String> targetRow = this.rows.get(rowNum);
+        if (isContextField(fieldName)) {
+            return getContextField(fieldName);
+        }
+        Map<String, Object> targetRow = this.rows.get(rowNum);
         return targetRow.get(fieldName);
     }
 }

@@ -18,15 +18,16 @@
 package org.apache.inlong.sort.kafka.table;
 
 import org.apache.inlong.sort.base.metric.MetricOption;
+import org.apache.inlong.sort.kafka.source.KafkaSource;
+import org.apache.inlong.sort.kafka.source.KafkaSourceBuilder;
 import org.apache.inlong.sort.kafka.table.DynamicKafkaDeserializationSchema.MetadataConverter;
+import org.apache.inlong.sort.protocol.node.ExtractNode;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.source.Boundedness;
-import org.apache.flink.connector.kafka.source.KafkaSource;
-import org.apache.flink.connector.kafka.source.KafkaSourceBuilder;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.connector.kafka.source.reader.deserializer.KafkaRecordDeserializationSchema;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -162,6 +163,8 @@ public class KafkaDynamicSource
 
     private final MetricOption metricOption;
 
+    private final boolean enableLogReport;
+
     public KafkaDynamicSource(
             DataType physicalDataType,
             @Nullable DecodingFormat<DeserializationSchema<RowData>> keyDecodingFormat,
@@ -177,7 +180,8 @@ public class KafkaDynamicSource
             long startupTimestampMillis,
             boolean upsertMode,
             String tableIdentifier,
-            MetricOption metricOption) {
+            MetricOption metricOption,
+            boolean enableLogReport) {
         // Format attributes
         this.physicalDataType =
                 Preconditions.checkNotNull(
@@ -212,6 +216,7 @@ public class KafkaDynamicSource
         this.upsertMode = upsertMode;
         this.tableIdentifier = tableIdentifier;
         this.metricOption = metricOption;
+        this.enableLogReport = enableLogReport;
     }
 
     @Override
@@ -327,7 +332,8 @@ public class KafkaDynamicSource
                         startupTimestampMillis,
                         upsertMode,
                         tableIdentifier,
-                        metricOption);
+                        metricOption,
+                        enableLogReport);
         copy.producedDataType = producedDataType;
         copy.metadataKeys = metadataKeys;
         copy.watermarkStrategy = watermarkStrategy;
@@ -365,7 +371,8 @@ public class KafkaDynamicSource
                 && Objects.equals(upsertMode, that.upsertMode)
                 && Objects.equals(tableIdentifier, that.tableIdentifier)
                 && Objects.equals(watermarkStrategy, that.watermarkStrategy)
-                && Objects.equals(metricOption, that.metricOption);
+                && Objects.equals(metricOption, that.metricOption)
+                && Objects.equals(enableLogReport, that.enableLogReport);
     }
 
     @Override
@@ -388,7 +395,8 @@ public class KafkaDynamicSource
                 upsertMode,
                 tableIdentifier,
                 watermarkStrategy,
-                metricOption);
+                metricOption,
+                enableLogReport);
     }
 
     // --------------------------------------------------------------------------------------------
@@ -441,8 +449,9 @@ public class KafkaDynamicSource
         }
         kafkaSourceBuilder
                 .setProperties(properties)
-                .setDeserializer(KafkaRecordDeserializationSchema.of(kafkaDeserializer));
-
+                .setDeserializer(KafkaRecordDeserializationSchema.of(kafkaDeserializer))
+                .setMetricSchema(kafkaDeserializer)
+                .enableLogReport(enableLogReport);
         return kafkaSourceBuilder.build();
     }
 
@@ -501,7 +510,8 @@ public class KafkaDynamicSource
                 metadataConverters,
                 producedTypeInfo,
                 upsertMode,
-                metricOption);
+                metricOption,
+                metadataKeys);
     }
 
     private @Nullable DeserializationSchema<RowData> createDeserialization(
@@ -619,6 +629,18 @@ public class KafkaDynamicSource
                     @Override
                     public Object read(ConsumerRecord<?, ?> record) {
                         return StringData.fromString(record.timestampType().toString());
+                    }
+                }),
+        CONSUME_TIME(
+                ExtractNode.CONSUME_AUDIT_TIME,
+                DataTypes.BIGINT().notNull(),
+                new MetadataConverter() {
+
+                    private static final long serialVersionUID = 1L;
+
+                    @Override
+                    public Object read(ConsumerRecord<?, ?> record) {
+                        return System.currentTimeMillis();
                     }
                 });
 

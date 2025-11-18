@@ -19,7 +19,7 @@ package org.apache.inlong.sort.pulsar.table;
 
 import org.apache.inlong.sort.base.metric.MetricOption;
 import org.apache.inlong.sort.base.metric.MetricsCollector;
-import org.apache.inlong.sort.base.metric.SourceMetricData;
+import org.apache.inlong.sort.base.metric.SourceExactlyMetric;
 
 import org.apache.flink.api.common.functions.util.ListCollector;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
@@ -57,9 +57,7 @@ public class PulsarTableDeserializationSchema implements PulsarDeserializationSc
 
     private final boolean upsertMode;
 
-    private final boolean innerFormat;
-
-    private SourceMetricData sourceMetricData;
+    private SourceExactlyMetric sourceExactlyMetric;
 
     private MetricOption metricOption;
 
@@ -69,7 +67,6 @@ public class PulsarTableDeserializationSchema implements PulsarDeserializationSc
             TypeInformation<RowData> producedTypeInfo,
             PulsarRowDataConverter rowDataConverter,
             boolean upsertMode,
-            boolean innerFormat,
             MetricOption metricOption) {
         if (upsertMode) {
             checkNotNull(keyDeserialization, "upsert mode must specify a key format");
@@ -79,7 +76,6 @@ public class PulsarTableDeserializationSchema implements PulsarDeserializationSc
         this.rowDataConverter = checkNotNull(rowDataConverter);
         this.producedTypeInfo = checkNotNull(producedTypeInfo);
         this.upsertMode = upsertMode;
-        this.innerFormat = innerFormat;
         this.metricOption = metricOption;
     }
 
@@ -90,7 +86,7 @@ public class PulsarTableDeserializationSchema implements PulsarDeserializationSc
             keyDeserialization.open(context);
         }
         if (metricOption != null) {
-            sourceMetricData = new SourceMetricData(metricOption);
+            sourceExactlyMetric = new SourceExactlyMetric(metricOption, context.getMetricGroup());
         }
         valueDeserialization.open(context);
     }
@@ -98,37 +94,70 @@ public class PulsarTableDeserializationSchema implements PulsarDeserializationSc
     @Override
     public void deserialize(Message<byte[]> message, Collector<RowData> collector)
             throws IOException {
+        try {
+            long deserializeStartTime = System.currentTimeMillis();
+            // increase the number of deserialize success first, if deserialize failed, decrease it
+            if (sourceExactlyMetric != null) {
+                sourceExactlyMetric.incNumDeserializeSuccess();
+            }
+            // Get the key row data
+            List<RowData> keyRowData = new ArrayList<>();
+            if (keyDeserialization != null) {
+                keyDeserialization.deserialize(message.getKeyBytes(), new ListCollector<>(keyRowData));
+            }
 
-        // Get the key row data
-        List<RowData> keyRowData = new ArrayList<>();
-        if (keyDeserialization != null) {
-            keyDeserialization.deserialize(message.getKeyBytes(), new ListCollector<>(keyRowData));
+            // Get the value row data
+            List<RowData> valueRowData = new ArrayList<>();
+
+            if (upsertMode && message.getData().length == 0) {
+                rowDataConverter.projectToRowWithNullValueRow(message, keyRowData, collector);
+                return;
+            }
+
+            MetricsCollector<RowData> metricsCollector =
+                    new MetricsCollector<>(collector, sourceExactlyMetric);
+
+            valueDeserialization.deserialize(message.getData(), new ListCollector<>(valueRowData));
+
+            rowDataConverter.projectToProducedRowAndCollect(
+                    message, keyRowData, valueRowData, metricsCollector);
+            if (sourceExactlyMetric != null) {
+                sourceExactlyMetric.recordDeserializeDelay(System.currentTimeMillis() - deserializeStartTime);
+            }
+        } catch (Exception e) {
+            if (sourceExactlyMetric != null) {
+                sourceExactlyMetric.incNumDeserializeError();
+                sourceExactlyMetric.decNumDeserializeSuccess();
+            }
+            throw e;
         }
-
-        // Get the value row data
-        List<RowData> valueRowData = new ArrayList<>();
-
-        if (upsertMode && message.getData().length == 0) {
-            rowDataConverter.projectToRowWithNullValueRow(message, keyRowData, collector);
-            return;
-        }
-
-        MetricsCollector<RowData> metricsCollector =
-                new MetricsCollector<>(new ListCollector<>(valueRowData), sourceMetricData);
-
-        // reset timestamp if the deserialize schema has not inner format
-        if (!innerFormat) {
-            metricsCollector.resetTimestamp(System.currentTimeMillis());
-        }
-
-        valueDeserialization.deserialize(message.getData(), metricsCollector);
-
-        rowDataConverter.projectToProducedRowAndCollect(
-                message, keyRowData, valueRowData, collector);
     }
 
     @Override
     public TypeInformation<RowData> getProducedType() {
         return producedTypeInfo;
+    }
+
+    public void flushAudit() {
+        if (sourceExactlyMetric != null) {
+            sourceExactlyMetric.flushAudit();
+        }
+    }
+
+    public void updateCurrentCheckpointId(long checkpointId) {
+        if (sourceExactlyMetric != null) {
+            sourceExactlyMetric.updateCurrentCheckpointId(checkpointId);
+        }
+    }
+
+    public void updateLastCheckpointId(long checkpointId) {
+        if (sourceExactlyMetric != null) {
+            sourceExactlyMetric.updateLastCheckpointId(checkpointId);
+        }
+    }
+
+    /** getter for PulsarSourceReader to record metrics */
+    public SourceExactlyMetric getSourceExactlyMetric() {
+        return sourceExactlyMetric;
     }
 }

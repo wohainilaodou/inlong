@@ -71,6 +71,9 @@ public abstract class SinkRequest {
     @Pattern(regexp = "^[a-zA-Z0-9_.-]{1,100}$", message = "sinkName only supports letters, numbers, '.', '-', or '_'")
     private String sinkName;
 
+    @ApiModelProperty("Transform sql")
+    private String transformSql;
+
     @ApiModelProperty("Sink description")
     @Length(max = 500, message = "length must be less than or equal to 500")
     private String description;
@@ -96,6 +99,9 @@ public abstract class SinkRequest {
     @ApiModelProperty(value = "Whether to enable create sink resource? 0: disable, 1: enable. Default is 1")
     @Range(min = 0, max = 1, message = "default is 1, only supports [0: disable, 1: enable]")
     private Integer enableCreateResource = 1;
+
+    @ApiModelProperty("Enable data archiving")
+    private Boolean enableDataArchiving;
 
     @ApiModelProperty(value = "Whether to start the process after saving or updating. Default is false")
     private Boolean startProcess = false;

@@ -17,14 +17,19 @@
 
 package org.apache.inlong.sort.standalone.sink.elasticsearch;
 
+import org.apache.inlong.sdk.transform.process.TransformProcessor;
 import org.apache.inlong.sort.standalone.channel.ProfileEvent;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.flume.Channel;
 import org.apache.flume.Event;
 import org.apache.flume.Transaction;
 import org.apache.flume.lifecycle.LifecycleState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * EsChannelWorker
@@ -41,7 +46,7 @@ public class EsChannelWorker extends Thread {
 
     /**
      * Constructor
-     * 
+     *
      * @param context
      * @param workerIndex
      */
@@ -90,16 +95,37 @@ public class EsChannelWorker extends Thread {
             }
             // to profileEvent
             ProfileEvent profileEvent = (ProfileEvent) event;
-            EsIndexRequest indexRequest = handler.parse(context, profileEvent);
-            // offer queue
-            if (indexRequest != null) {
-                context.offerDispatchQueue(indexRequest);
-            } else {
-                context.addSendFailMetric();
+            String uid = profileEvent.getUid();
+            EsIdConfig idConfig = context.getIdConfig(uid);
+            if (idConfig == null) {
+                tx.commit();
                 profileEvent.ack();
+                LOG.error("There is no id config for uid {}, discard it", profileEvent.getUid());
+                context.addSendResultMetric(profileEvent, context.getTaskName(), false, System.currentTimeMillis());
+                return;
+            }
+            TransformProcessor<String, Map<String, Object>> processor =
+                    context.getTransformProcessor(profileEvent.getUid());
+            if (processor == null) {
+                EsIndexRequest indexRequest = handler.parse(context, profileEvent);
+                // offer queue
+                if (indexRequest != null) {
+                    context.offerDispatchQueue(indexRequest);
+                } else {
+                    profileEvent.ack();
+                    context.addSendResultMetric(profileEvent, context.getTaskName(), false, System.currentTimeMillis());
+                }
+            } else {
+                List<EsIndexRequest> indexRequestList = handler.parse(
+                        context, profileEvent, context.getTransformProcessor(profileEvent.getUid()));
+                if (CollectionUtils.isNotEmpty(indexRequestList)) {
+                    indexRequestList.forEach(context::offerDispatchQueue);
+                } else {
+                    profileEvent.ack();
+                    context.addSendFilterMetric(profileEvent, uid);
+                }
             }
             tx.commit();
-            return;
         } catch (Throwable t) {
             LOG.error("Process event failed!" + this.getName(), t);
             try {
@@ -107,7 +133,6 @@ public class EsChannelWorker extends Thread {
             } catch (Throwable e) {
                 LOG.error("Channel take transaction rollback exception:" + getName(), e);
             }
-            return;
         } finally {
             tx.close();
         }

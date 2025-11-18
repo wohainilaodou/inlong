@@ -58,7 +58,9 @@ import org.apache.inlong.common.pojo.sort.dataflow.field.format.TimestampTypeInf
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.TypeInfo;
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.VarBinaryFormatInfo;
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.VarCharFormatInfo;
+import org.apache.inlong.sort.formats.inlongmsg.FailureHandler;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.table.api.DataTypes;
@@ -547,7 +549,8 @@ public class TableFormatUtils {
             String fieldName,
             FormatInfo fieldFormatInfo,
             String fieldText,
-            String nullLiteral) {
+            String nullLiteral,
+            FailureHandler failureHandler) throws Exception {
         checkState(fieldFormatInfo instanceof BasicFormatInfo);
 
         if (fieldText == null) {
@@ -573,8 +576,40 @@ public class TableFormatUtils {
         } catch (Exception e) {
             LOG.warn("Could not properly deserialize the " + "text "
                     + fieldText + " for field " + fieldName + ".", e);
+            if (failureHandler != null) {
+                failureHandler.onConvertingFieldFailure(fieldName, fieldText, fieldFormatInfo, e);
+            }
         }
         return null;
+    }
+
+    public static long getFormatValueLength(FormatInfo fieldFormatInfo, String fieldText) {
+        if (fieldFormatInfo instanceof BooleanFormatInfo) {
+            return 4;
+        } else if (fieldFormatInfo instanceof ByteFormatInfo) {
+            return 4;
+        } else if (fieldFormatInfo instanceof BooleanFormatInfo) {
+            return 4;
+        } else if (fieldFormatInfo instanceof ShortFormatInfo) {
+            return 4;
+        } else if (fieldFormatInfo instanceof IntFormatInfo) {
+            return 4;
+        } else if (fieldFormatInfo instanceof LongFormatInfo) {
+            return 8;
+        } else if (fieldFormatInfo instanceof FloatFormatInfo) {
+            return 8;
+        } else if (fieldFormatInfo instanceof DoubleFormatInfo) {
+            return 8;
+        } else if (fieldFormatInfo instanceof DecimalFormatInfo) {
+            return 8;
+        } else if (fieldFormatInfo instanceof DateFormatInfo
+                || fieldFormatInfo instanceof TimeFormatInfo
+                || fieldFormatInfo instanceof TimestampFormatInfo) {
+            return 8;
+        } else if (StringUtils.isNotEmpty(fieldText)) {
+            return fieldText.length();
+        }
+        return 0L;
     }
 
     /**

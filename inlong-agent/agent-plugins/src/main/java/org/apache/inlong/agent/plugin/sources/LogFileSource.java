@@ -18,16 +18,23 @@
 package org.apache.inlong.agent.plugin.sources;
 
 import org.apache.inlong.agent.conf.InstanceProfile;
-import org.apache.inlong.agent.conf.TaskProfile;
+import org.apache.inlong.agent.conf.OffsetProfile;
 import org.apache.inlong.agent.constant.DataCollectType;
 import org.apache.inlong.agent.constant.TaskConstants;
+import org.apache.inlong.agent.core.FileStaticManager;
+import org.apache.inlong.agent.core.FileStaticManager.FileStatic;
+import org.apache.inlong.agent.core.task.OffsetManager;
 import org.apache.inlong.agent.except.FileException;
 import org.apache.inlong.agent.metrics.audit.AuditUtils;
-import org.apache.inlong.agent.plugin.file.Reader;
+import org.apache.inlong.agent.plugin.sources.extend.DefaultExtendedHandler;
 import org.apache.inlong.agent.plugin.sources.file.AbstractSource;
-import org.apache.inlong.agent.plugin.utils.file.FileDataUtils;
+import org.apache.inlong.agent.plugin.task.logcollection.local.FileDataUtils;
 import org.apache.inlong.agent.utils.AgentUtils;
+import org.apache.inlong.agent.utils.file.FileUtils;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,17 +45,34 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.LineNumberReader;
 import java.io.RandomAccessFile;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.apache.inlong.agent.constant.TaskConstants.FILE_CONTENT_STYLE;
 
 /**
  * Read text files
  */
 public class LogFileSource extends AbstractSource {
 
+    public static final int LEN_OF_FILE_OFFSET_ARRAY = 2;
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    protected class FileOffset {
+
+        private Long lineOffset;
+        private Long byteOffset;
+        private boolean hasByteOffset;
+    }
+
     private static final Logger LOGGER = LoggerFactory.getLogger(LogFileSource.class);
+    public static final String OFFSET_SEP = ":";
     private final Integer SIZE_OF_BUFFER_TO_READ_FILE = 64 * 1024;
     private final Long INODE_UPDATE_INTERVAL_MS = 1000L;
+    private final SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private String fileName;
     private File file;
@@ -65,6 +89,11 @@ public class LogFileSource extends AbstractSource {
     }
 
     @Override
+    protected void initExtendClass() {
+        extendClass = DefaultExtendedHandler.class.getCanonicalName();
+    }
+
+    @Override
     protected void initSource(InstanceProfile profile) {
         try {
             LOGGER.info("LogFileSource init: {}", profile.toJsonStr());
@@ -74,8 +103,7 @@ public class LogFileSource extends AbstractSource {
             file = new File(fileName);
             inodeInfo = profile.get(TaskConstants.INODE_INFO);
             lastInodeUpdateTime = AgentUtils.getCurrentTime();
-            linePosition = getInitLineOffset(isIncrement, taskId, instanceId, inodeInfo);
-            bytePosition = getBytePositionByLine(linePosition);
+            initOffset(isIncrement, taskId, instanceId, inodeInfo);
             randomAccessFile = new RandomAccessFile(file, "r");
         } catch (Exception ex) {
             stopRunning();
@@ -125,14 +153,9 @@ public class LogFileSource extends AbstractSource {
     }
 
     private List<SourceData> readFromPos(long pos) throws IOException {
-        List<byte[]> lines = new ArrayList<>();
-        List<SourceData> dataList = new ArrayList<>();
-        bytePosition = readLines(randomAccessFile, pos, lines, BATCH_READ_LINE_COUNT, BATCH_READ_LINE_TOTAL_LEN, false);
-        for (int i = 0; i < lines.size(); i++) {
-            linePosition++;
-            dataList.add(new SourceData(lines.get(i), Long.toString(linePosition)));
-        }
-        return dataList;
+        List<SourceData> lines = new ArrayList<>();
+        bytePosition = readLines(randomAccessFile, pos, lines, BATCH_READ_LINE_COUNT, BATCH_READ_LINE_TOTAL_LEN);
+        return lines;
     }
 
     private int getRealLineCount(String fileName) {
@@ -145,30 +168,39 @@ public class LogFileSource extends AbstractSource {
         }
     }
 
-    private long getInitLineOffset(boolean isIncrement, String taskId, String instanceId, String inodeInfo) {
-        long offset = 0;
+    private void initOffset(boolean isIncrement, String taskId, String instanceId, String inodeInfo)
+            throws IOException {
+        long lineOffset;
+        long byteOffset;
         if (offsetProfile != null && offsetProfile.getInodeInfo().compareTo(inodeInfo) == 0) {
-            offset = Long.parseLong(offsetProfile.getOffset());
-            int fileLineCount = getRealLineCount(instanceId);
-            if (fileLineCount < offset) {
-                LOGGER.info("getInitLineOffset inode no change taskId {} file rotate, offset set to 0, file {}", taskId,
-                        fileName);
-                offset = 0;
+            FileOffset fileOffset = parseFIleOffset(offsetProfile.getOffset());
+            if (fileOffset.hasByteOffset) {
+                lineOffset = fileOffset.lineOffset;
+                byteOffset = fileOffset.byteOffset;
+                LOGGER.info("initOffset inode no change taskId {} restore lineOffset {} byteOffset {}, file {}", taskId,
+                        lineOffset, byteOffset, fileName);
             } else {
-                LOGGER.info("getInitLineOffset inode no change taskId {} from offset store {}, file {}", taskId, offset,
-                        fileName);
+                lineOffset = fileOffset.lineOffset;
+                byteOffset = getBytePositionByLine(lineOffset);
+                LOGGER.info("initOffset inode no change taskId {} restore lineOffset {} count byteOffset {}, file {}",
+                        taskId,
+                        lineOffset, byteOffset, fileName);
             }
         } else {
             if (isIncrement) {
-                offset = getRealLineCount(instanceId);
-                LOGGER.info("getInitLineOffset taskId {} for new increment read from {} file {}", taskId,
-                        offset, fileName);
+                lineOffset = getRealLineCount(instanceId);
+                byteOffset = getBytePositionByLine(lineOffset);
+                LOGGER.info("initOffset taskId {} for new increment lineOffset {} byteOffset {}, file {}", taskId,
+                        lineOffset, byteOffset, fileName);
             } else {
-                offset = 0;
-                LOGGER.info("getInitLineOffset taskId {} for new all read from 0 file {}", taskId, fileName);
+                lineOffset = 0;
+                byteOffset = 0;
+                LOGGER.info("initOffset taskId {} for new all read lineOffset {} byteOffset {} file {}", taskId,
+                        lineOffset, byteOffset, fileName);
             }
         }
-        return offset;
+        linePosition = lineOffset;
+        bytePosition = byteOffset;
     }
 
     public File getFile() {
@@ -190,9 +222,9 @@ public class LogFileSource extends AbstractSource {
         try {
             input = new RandomAccessFile(file, "r");
             while (readCount < linePosition) {
-                List<byte[]> lines = new ArrayList<>();
+                List<SourceData> lines = new ArrayList<>();
                 pos = readLines(input, pos, lines, Math.min((int) (linePosition - readCount), BATCH_READ_LINE_COUNT),
-                        BATCH_READ_LINE_TOTAL_LEN, true);
+                        BATCH_READ_LINE_TOTAL_LEN);
                 readCount += lines.size();
                 if (lines.size() == 0) {
                     LOGGER.error("getBytePositionByLine LineNum {} larger than the real file");
@@ -217,8 +249,8 @@ public class LogFileSource extends AbstractSource {
      * @return The new position after the lines have been read
      * @throws IOException if an I/O error occurs.
      */
-    private long readLines(RandomAccessFile reader, long pos, List<byte[]> lines, int maxLineCount, int maxLineTotalLen,
-            boolean isCounting)
+    private long readLines(RandomAccessFile reader, long pos, List<SourceData> lines, int maxLineCount,
+            int maxLineTotalLen)
             throws IOException {
         if (maxLineCount == 0) {
             return pos;
@@ -236,13 +268,10 @@ public class LogFileSource extends AbstractSource {
                 byte ch = bufferToReadFile[i];
                 switch (ch) {
                     case '\n':
-                        if (isCounting) {
-                            lines.add(null);
-                        } else {
-                            lines.add(baos.toByteArray());
-                            lineTotalLen += baos.size();
-                        }
+                        linePosition++;
                         rePos = pos + i + 1;
+                        lines.add(new SourceData(baos.toByteArray(), getOffsetString(linePosition, rePos)));
+                        lineTotalLen += baos.size();
                         if (overLen) {
                             LOGGER.warn("readLines over len finally string len {}",
                                     new String(baos.toByteArray()).length());
@@ -285,6 +314,19 @@ public class LogFileSource extends AbstractSource {
         return rePos;
     }
 
+    private String getOffsetString(Long lineOffset, Long byteOffset) {
+        return lineOffset + OFFSET_SEP + byteOffset;
+    }
+
+    private FileOffset parseFIleOffset(String offset) {
+        String[] offsetArray = offset.split(OFFSET_SEP);
+        if (offsetArray.length == LEN_OF_FILE_OFFSET_ARRAY) {
+            return new FileOffset(Long.parseLong(offsetArray[0]), Long.parseLong(offsetArray[1]), true);
+        } else {
+            return new FileOffset(Long.parseLong(offsetArray[0]), null, false);
+        }
+    }
+
     private boolean isInodeChanged() {
         if (AgentUtils.getCurrentTime() - lastInodeUpdateTime > INODE_UPDATE_INTERVAL_MS) {
             try {
@@ -308,18 +350,34 @@ public class LogFileSource extends AbstractSource {
     }
 
     @Override
-    public List<Reader> split(TaskProfile jobConf) {
-        return null;
-    }
-
-    @Override
     protected void releaseSource() {
         if (randomAccessFile != null) {
             try {
+                FileStatic data = new FileStatic();
+                data.setTaskId(taskId);
+                data.setRetry(String.valueOf(profile.isRetry()));
+                data.setContentType(profile.get(FILE_CONTENT_STYLE));
+                data.setGroupId(profile.getInlongGroupId());
+                data.setStreamId(profile.getInlongStreamId());
+                data.setDataTime(format.format(profile.getSinkDataTime()));
+                data.setFileName(profile.getInstanceId());
+                data.setFileLen(String.valueOf(randomAccessFile.length()));
+                data.setReadBytes(String.valueOf(bytePosition));
+                data.setReadLines(String.valueOf(linePosition));
+                OffsetProfile offsetProfile = OffsetManager.getInstance().getOffset(taskId, instanceId);
+                if (offsetProfile != null) {
+                    data.setSendLines(offsetProfile.getOffset());
+                }
+                FileStaticManager.putStaticMsg(data);
                 randomAccessFile.close();
             } catch (IOException e) {
                 LOGGER.error("close randomAccessFile error", e);
             }
         }
+    }
+
+    @Override
+    public long getLastModifyTime() {
+        return FileUtils.getFileLastModifyTime(fileName);
     }
 }

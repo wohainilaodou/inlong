@@ -67,6 +67,11 @@ export const allDefaultNodes: MetaExportWithBackendList<NodeMetaType> = [
     LoadEntity: () => import('./MySQL'),
   },
   {
+    label: 'OceanBase',
+    value: 'OCEANBASE',
+    LoadEntity: () => import('./OceanBase'),
+  },
+  {
     label: 'PostgreSQL',
     value: 'POSTGRESQL',
     LoadEntity: () => import('./PostgreSQL'),
@@ -90,5 +95,20 @@ export const allDefaultNodes: MetaExportWithBackendList<NodeMetaType> = [
     label: 'Kudu',
     value: 'KUDU',
     LoadEntity: () => import('./Kudu'),
+  },
+  {
+    label: 'Http',
+    value: 'HTTP',
+    LoadEntity: () => import('./Http'),
+  },
+  {
+    label: 'COS',
+    value: 'COS',
+    LoadEntity: () => import('./COS'),
+  },
+  {
+    label: 'SQL',
+    value: 'SQL',
+    LoadEntity: () => import('./SQL'),
   },
 ];

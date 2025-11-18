@@ -21,13 +21,19 @@ import org.apache.inlong.agent.common.AbstractDaemon;
 import org.apache.inlong.agent.conf.AgentConfiguration;
 import org.apache.inlong.agent.conf.ProfileFetcher;
 import org.apache.inlong.agent.conf.TaskProfile;
+import org.apache.inlong.agent.constant.CycleUnitType;
 import org.apache.inlong.agent.core.AgentManager;
 import org.apache.inlong.agent.pojo.FileTask.FileTaskConfig;
 import org.apache.inlong.agent.utils.AgentUtils;
+import org.apache.inlong.agent.utils.EventReportUtils;
+import org.apache.inlong.agent.utils.EventReportUtils.EvenCodeEnum;
 import org.apache.inlong.agent.utils.HttpManager;
 import org.apache.inlong.agent.utils.ThreadUtils;
-import org.apache.inlong.common.db.CommandEntity;
 import org.apache.inlong.common.enums.PullJobTypeEnum;
+import org.apache.inlong.common.enums.TaskTypeEnum;
+import org.apache.inlong.common.pojo.agent.AgentConfigInfo;
+import org.apache.inlong.common.pojo.agent.AgentConfigRequest;
+import org.apache.inlong.common.pojo.agent.AgentResponseCode;
 import org.apache.inlong.common.pojo.agent.DataConfig;
 import org.apache.inlong.common.pojo.agent.TaskRequest;
 import org.apache.inlong.common.pojo.agent.TaskResult;
@@ -39,24 +45,23 @@ import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 
 import static org.apache.inlong.agent.constant.AgentConstants.AGENT_CLUSTER_NAME;
+import static org.apache.inlong.agent.constant.AgentConstants.AGENT_CLUSTER_TAG;
+import static org.apache.inlong.agent.constant.AgentConstants.AGENT_LOCAL_IP;
 import static org.apache.inlong.agent.constant.AgentConstants.AGENT_UNIQ_ID;
 import static org.apache.inlong.agent.constant.AgentConstants.DEFAULT_AGENT_UNIQ_ID;
 import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_FETCHER_INTERVAL;
 import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_MANAGER_ADDR;
+import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_MANAGER_CONFIG_HTTP_PATH;
 import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_MANAGER_RETURN_PARAM_DATA;
 import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_MANAGER_TASK_HTTP_PATH;
 import static org.apache.inlong.agent.constant.FetcherConstants.DEFAULT_AGENT_FETCHER_INTERVAL;
 import static org.apache.inlong.agent.constant.FetcherConstants.DEFAULT_AGENT_MANAGER_CONFIG_HTTP_PATH;
-import static org.apache.inlong.agent.constant.FetcherConstants.DEFAULT_AGENT_MANAGER_TASK_HTTP_PATH;
+import static org.apache.inlong.agent.constant.FetcherConstants.DEFAULT_AGENT_MANAGER_EXIST_TASK_HTTP_PATH;
 import static org.apache.inlong.agent.plugin.fetcher.ManagerResultFormatter.getResultData;
-import static org.apache.inlong.agent.utils.AgentUtils.fetchLocalIp;
 import static org.apache.inlong.agent.utils.AgentUtils.fetchLocalUuid;
 
 /**
@@ -69,14 +74,15 @@ public class ManagerFetcher extends AbstractDaemon implements ProfileFetcher {
     private static final GsonBuilder gsonBuilder = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss");
     private static final Gson GSON = gsonBuilder.create();
     private final String baseManagerUrl;
-    private final String taskConfigUrl;
     private final String staticConfigUrl;
+    private final String agentConfigInfoUrl;
     private final AgentConfiguration conf;
     private final String uniqId;
     private final AgentManager agentManager;
     private final HttpManager httpManager;
     private String localIp;
     private String uuid;
+    private String clusterTag;
     private String clusterName;
 
     public ManagerFetcher(AgentManager agentManager) {
@@ -85,9 +91,10 @@ public class ManagerFetcher extends AbstractDaemon implements ProfileFetcher {
         if (requiredKeys(conf)) {
             httpManager = new HttpManager(conf);
             baseManagerUrl = httpManager.getBaseUrl();
-            taskConfigUrl = buildTaskConfigUrl(baseManagerUrl);
             staticConfigUrl = buildStaticConfigUrl(baseManagerUrl);
+            agentConfigInfoUrl = buildAgentConfigInfoUrl(baseManagerUrl);
             uniqId = conf.get(AGENT_UNIQ_ID, DEFAULT_AGENT_UNIQ_ID);
+            clusterTag = conf.get(AGENT_CLUSTER_TAG);
             clusterName = conf.get(AGENT_CLUSTER_NAME);
         } else {
             throw new RuntimeException("init manager error, cannot find required key");
@@ -101,68 +108,78 @@ public class ManagerFetcher extends AbstractDaemon implements ProfileFetcher {
     /**
      * Build task config url for manager according to config
      *
-     * example - http://127.0.0.1:8080/inlong/manager/openapi/fileAgent/getTaskConf
-     */
-    private String buildTaskConfigUrl(String baseUrl) {
-        return baseUrl + conf.get(AGENT_MANAGER_TASK_HTTP_PATH, DEFAULT_AGENT_MANAGER_TASK_HTTP_PATH);
-    }
-
-    /**
-     * Build task config url for manager according to config
-     *
-     * example - http://127.0.0.1:8080/inlong/manager/openapi/fileAgent/getTaskConf
+     * example - http://127.0.0.1:8080/inlong/manager/openapi/agent/getTaskConf
      */
     private String buildStaticConfigUrl(String baseUrl) {
-        return baseUrl + conf.get(AGENT_MANAGER_TASK_HTTP_PATH, DEFAULT_AGENT_MANAGER_CONFIG_HTTP_PATH);
+        return baseUrl + conf.get(AGENT_MANAGER_TASK_HTTP_PATH, DEFAULT_AGENT_MANAGER_EXIST_TASK_HTTP_PATH);
     }
 
     /**
-     * Request manager to get commands, make sure it is not throwing exceptions
+     * Build agent config info url for manager according to config
+     *
+     * example - http://127.0.0.1:8080/inlong/manager/openapi/agent/getConfig
      */
-    public TaskResult fetchTaskConfig() {
-        LOGGER.info("fetchTaskConfig start");
-        String resultStr = httpManager.doSentPost(taskConfigUrl, getFetchRequest(null));
-        JsonObject resultData = getResultData(resultStr);
-        JsonElement element = resultData.get(AGENT_MANAGER_RETURN_PARAM_DATA);
-        LOGGER.info("fetchTaskConfig end");
-        if (element != null) {
-            LOGGER.info("fetchTaskConfig not null {}", resultData);
-            return GSON.fromJson(element.getAsJsonObject(), TaskResult.class);
-        } else {
-            LOGGER.info("fetchTaskConfig nothing to do");
-            return null;
-        }
+    private String buildAgentConfigInfoUrl(String baseUrl) {
+        return baseUrl + conf.get(AGENT_MANAGER_CONFIG_HTTP_PATH, DEFAULT_AGENT_MANAGER_CONFIG_HTTP_PATH);
     }
 
     /**
-     * Request manager to get commands, make sure it is not throwing exceptions
+     * Request manager to get task config, make sure it is not throwing exceptions
      */
     public TaskResult getStaticConfig() {
         LOGGER.info("Get static config start");
-        String resultStr = httpManager.doSentPost(staticConfigUrl, getFetchRequest(null));
+        String resultStr = httpManager.doSentPost(staticConfigUrl, getTaskRequest());
         LOGGER.info("Url to get static config staticConfigUrl {}", staticConfigUrl);
         JsonObject resultData = getResultData(resultStr);
         JsonElement element = resultData.get(AGENT_MANAGER_RETURN_PARAM_DATA);
         LOGGER.info("Get static config  end");
         if (element != null) {
-            LOGGER.info("Get static config  not null {}", resultData);
+            LOGGER.info("Get static config not null {}", resultData);
             return GSON.fromJson(element.getAsJsonObject(), TaskResult.class);
         } else {
-            LOGGER.info("Get static config  nothing to do");
+            LOGGER.info("Get static config nothing to do");
             return null;
         }
     }
 
     /**
-     * Form file command fetch request
+     * Request manager to get config, make sure it is not throwing exceptions
      */
-    public TaskRequest getFetchRequest(List<CommandEntity> unackedCommands) {
+    public AgentConfigInfo getAgentConfigInfo() {
+        LOGGER.info("Get agent config info");
+        String resultStr = httpManager.doSentPost(agentConfigInfoUrl, getAgentConfigInfoRequest());
+        LOGGER.info("Url to get agent config agentConfigInfoUrl {}", agentConfigInfoUrl);
+        JsonObject resultData = getResultData(resultStr);
+        JsonElement element = resultData.get(AGENT_MANAGER_RETURN_PARAM_DATA);
+        LOGGER.info("Get agent config end");
+        if (element != null) {
+            LOGGER.info("Get agent config not null {}", resultData);
+            return GSON.fromJson(element.getAsJsonObject(), AgentConfigInfo.class);
+        } else {
+            LOGGER.info("Get agent config nothing to do");
+            return null;
+        }
+    }
+
+    public TaskRequest getTaskRequest() {
         TaskRequest request = new TaskRequest();
+        request.setMd5(agentManager.getTaskManager().getTaskResultMd5());
         request.setAgentIp(localIp);
         request.setUuid(uuid);
         request.setClusterName(clusterName);
         request.setPullJobType(PullJobTypeEnum.NEW.getType());
-        request.setCommandInfo(unackedCommands);
+        request.setCommandInfo(null);
+        return request;
+    }
+
+    public AgentConfigRequest getAgentConfigInfoRequest() {
+        AgentConfigRequest request = new AgentConfigRequest();
+        if (AgentManager.getAgentConfigInfo() != null) {
+            request.setMd5(AgentManager.getAgentConfigInfo().getMd5());
+        }
+        request.setClusterTag(clusterTag);
+        request.setClusterName(clusterName);
+        request.setIp(localIp);
         return request;
     }
 
@@ -171,21 +188,64 @@ public class ManagerFetcher extends AbstractDaemon implements ProfileFetcher {
      *
      * @return runnable profile.
      */
-    private Runnable taskConfigFetchThread() {
+    private Runnable configFetchThread() {
         return () -> {
             Thread.currentThread().setName("ManagerFetcher");
             while (isRunnable()) {
                 try {
                     TaskResult taskResult = getStaticConfig();
                     if (taskResult != null) {
-                        List<TaskProfile> taskProfiles = new ArrayList<>();
-                        taskResult.getDataConfigs().forEach((config) -> {
-                            TaskProfile profile = TaskProfile.convertToTaskProfile(config);
-                            taskProfiles.add(profile);
-                        });
-                        agentManager.getTaskManager().submitTaskProfiles(taskProfiles);
+                        if (taskResult.getCode().equals(AgentResponseCode.SUCCESS)) {
+                            if (agentManager.getTaskManager().getTaskResultVersion() < taskResult.getVersion()) {
+                                EventReportUtils.report("", "", AgentUtils.getCurrentTime(),
+                                        EventReportUtils.EVENT_TYPE_CONFIG_UPDATE, EventReportUtils.EVENT_LEVEL_INFO,
+                                        EvenCodeEnum.CONFIG_UPDATE_SUC, taskResult.toString(),
+                                        EvenCodeEnum.CONFIG_UPDATE_SUC.getMessage());
+                                List<TaskProfile> taskProfiles = new ArrayList<>();
+                                taskResult.getDataConfigs().forEach((config) -> {
+                                    TaskProfile profile = TaskProfile.convertToTaskProfile(config);
+                                    taskProfiles.add(profile);
+                                });
+                                agentManager.getTaskManager().submitTaskProfiles(taskProfiles);
+                                agentManager.getTaskManager().setTaskResultMd5(taskResult.getMd5());
+                                agentManager.getTaskManager().setTaskResultVersion(taskResult.getVersion());
+                            } else {
+                                EventReportUtils.report("", "", AgentUtils.getCurrentTime(),
+                                        EventReportUtils.EVENT_TYPE_CONFIG_UPDATE, EventReportUtils.EVENT_LEVEL_WARN,
+                                        EvenCodeEnum.CONFIG_UPDATE_VERSION_NO_CHANGE, taskResult.toString(),
+                                        EvenCodeEnum.CONFIG_UPDATE_VERSION_NO_CHANGE.getMessage());
+                                LOGGER.warn("%s: %s", EvenCodeEnum.CONFIG_UPDATE_VERSION_NO_CHANGE.getMessage(),
+                                        taskResult);
+                            }
+                        } else if (taskResult.getCode().equals(AgentResponseCode.NO_UPDATE)) {
+                            EventReportUtils.report("", "", AgentUtils.getCurrentTime(),
+                                    EventReportUtils.EVENT_TYPE_CONFIG_UPDATE, EventReportUtils.EVENT_LEVEL_INFO,
+                                    EvenCodeEnum.CONFIG_NO_UPDATE, taskResult.toString(),
+                                    EvenCodeEnum.CONFIG_NO_UPDATE.getMessage());
+                        } else {
+                            EventReportUtils.report("", "", AgentUtils.getCurrentTime(),
+                                    EventReportUtils.EVENT_TYPE_CONFIG_UPDATE, EventReportUtils.EVENT_LEVEL_ERROR,
+                                    EvenCodeEnum.CONFIG_INVALID_RET_CODE, taskResult.toString(),
+                                    EvenCodeEnum.CONFIG_INVALID_RET_CODE.getMessage());
+                        }
+                    } else {
+                        EventReportUtils.report("", "", AgentUtils.getCurrentTime(),
+                                EventReportUtils.EVENT_TYPE_CONFIG_UPDATE, EventReportUtils.EVENT_LEVEL_ERROR,
+                                EvenCodeEnum.CONFIG_INVALID_RESULT, taskResult.toString(),
+                                EvenCodeEnum.CONFIG_INVALID_RESULT.getMessage());
+                    }
+                    AgentConfigInfo config = getAgentConfigInfo();
+                    if (config != null && config.getCode().equals(AgentResponseCode.SUCCESS)) {
+                        if (AgentManager.getAgentConfigInfo() == null
+                                || AgentManager.getAgentConfigInfo().getVersion() < config.getVersion()) {
+                            agentManager.subNewAgentConfigInfo(config);
+                        }
                     }
                 } catch (Throwable ex) {
+                    EventReportUtils.report("", "", AgentUtils.getCurrentTime(),
+                            EventReportUtils.EVENT_TYPE_CONFIG_UPDATE, EventReportUtils.EVENT_LEVEL_ERROR,
+                            EvenCodeEnum.CONFIG_INVALID_RESULT, ex.getMessage(),
+                            EvenCodeEnum.CONFIG_INVALID_RESULT.getMessage());
                     LOGGER.warn("exception caught", ex);
                     ThreadUtils.threadThrowableHandler(Thread.currentThread(), ex);
                 } finally {
@@ -198,42 +258,35 @@ public class ManagerFetcher extends AbstractDaemon implements ProfileFetcher {
 
     private TaskResult getTestConfig(String testDir, int normalTaskId, int retryTaskId, int state) {
         List<DataConfig> configs = new ArrayList<>();
-        String startStr = "2023-07-10 00:00:00";
-        String endStr = "2023-07-22 00:00:00";
-        Long start = 0L;
-        Long end = 0L;
-        String normalPattern = testDir + "YYYY/YYYYMMDD_2.log_[0-9]+";
+        String normalPattern = testDir + "YYYY/YYYYMMDDhhmm_2.log_[0-9]+";
         String retryPattern = testDir + "YYYY/YYYYMMDD_1.log_[0-9]+";
-        try {
-            Date parse = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(startStr);
-            start = parse.getTime();
-            parse = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(endStr);
-            end = parse.getTime();
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
-        configs.add(getTestDataConfig(normalTaskId, normalPattern, false, start, end, state));
-        configs.add(getTestDataConfig(retryTaskId, retryPattern, true, start, end, state));
+        configs.add(getTestDataConfig(normalTaskId, normalPattern, false, "202307100000", "202307220000",
+                CycleUnitType.MINUTE, state));
+        configs.add(
+                getTestDataConfig(retryTaskId, retryPattern, true, "20230710", "20230722", CycleUnitType.DAY, state));
         return TaskResult.builder().dataConfigs(configs).build();
     }
 
-    private DataConfig getTestDataConfig(int taskId, String pattern, boolean retry, Long startTime, Long endTime,
-            int state) {
+    private DataConfig getTestDataConfig(int taskId, String pattern, boolean retry, String startTime, String endTime,
+            String cycleUnit, int state) {
         DataConfig dataConfig = new DataConfig();
-        dataConfig.setInlongGroupId("testGroupId"); // 老字段 groupId
-        dataConfig.setInlongStreamId("testStreamId"); // 老字段 streamId
-        dataConfig.setDataReportType(1); // 老字段 reportType
-        dataConfig.setTaskType(3); // 老字段 任务类型，3 代表文件采集
-        dataConfig.setTaskId(taskId); // 老字段 任务 id
-        dataConfig.setState(state); // 新增！ 任务状态 1 正常 2 暂停
+        dataConfig.setInlongGroupId("devcloud_group_id");
+        dataConfig.setInlongStreamId("devcloud_stream_id");
+        dataConfig.setDataReportType(0);
+        dataConfig.setTaskType(TaskTypeEnum.FILE.getType());
+        dataConfig.setTaskId(taskId);
+        dataConfig.setState(state);
+        dataConfig.setTimeZone("GMT+8:00");
         FileTaskConfig fileTaskConfig = new FileTaskConfig();
-        fileTaskConfig.setPattern(pattern);// 正则
-        fileTaskConfig.setTimeOffset("0d"); // 老字段 时间偏移 "-1d" 采一天前的 "-2h" 采 2 小时前的
-        fileTaskConfig.setMaxFileCount(100); // 最大文件数
-        fileTaskConfig.setCycleUnit("D"); // 新增！ 任务周期 "D" 天 "h" 小时
-        fileTaskConfig.setRetry(retry); // 新增！ 是否补录，如果是补录任务则为 true
-        fileTaskConfig.setStartTime(startTime);
-        fileTaskConfig.setEndTime(endTime);
+        fileTaskConfig.setPattern(pattern);
+        fileTaskConfig.setTimeOffset("0d");
+        fileTaskConfig.setMaxFileCount(100);
+        fileTaskConfig.setCycleUnit(cycleUnit);
+        fileTaskConfig.setRetry(retry);
+        fileTaskConfig.setDataTimeFrom(startTime);
+        fileTaskConfig.setDataTimeTo(endTime);
+        fileTaskConfig.setDataContentStyle("CSV");
+        fileTaskConfig.setDataSeparator("|");
         dataConfig.setExtParams(GSON.toJson(fileTaskConfig));
         return dataConfig;
     }
@@ -241,9 +294,9 @@ public class ManagerFetcher extends AbstractDaemon implements ProfileFetcher {
     @Override
     public void start() throws Exception {
         // when agent start, check local ip and fetch manager ip list;
-        localIp = fetchLocalIp();
+        localIp = conf.get(AGENT_LOCAL_IP);
         uuid = fetchLocalUuid();
-        submitWorker(taskConfigFetchThread());
+        submitWorker(configFetchThread());
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 package org.apache.inlong.manager.plugin.util;
 
+import org.apache.inlong.common.bounded.Boundaries;
 import org.apache.inlong.manager.common.consts.InlongConstants;
 import org.apache.inlong.manager.common.consts.SinkType;
 import org.apache.inlong.manager.common.util.JsonUtils;
@@ -58,6 +59,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static org.apache.inlong.manager.common.consts.InlongConstants.RUNTIME_EXECUTION_MODE_BATCH;
+import static org.apache.inlong.manager.common.consts.InlongConstants.RUNTIME_EXECUTION_MODE_STREAM;
 import static org.apache.inlong.manager.plugin.flink.enums.Constants.ADDRESS;
 import static org.apache.inlong.manager.plugin.flink.enums.Constants.DRAIN;
 import static org.apache.inlong.manager.plugin.flink.enums.Constants.FLINK_VERSION;
@@ -215,10 +218,52 @@ public class FlinkUtils {
         flinkConfig.setJobManagerPort(Integer.valueOf(properties.getProperty(JOB_MANAGER_PORT)));
         flinkConfig.setDrain(Boolean.parseBoolean(properties.getProperty(DRAIN)));
         flinkConfig.setVersion(properties.getProperty(FLINK_VERSION));
+        flinkConfig.setDynamicParallelismEnable(Boolean.parseBoolean(properties.getProperty(
+                Constants.FLINK_DYNAMIC_PARALLELISM_ENABLE)));
+        flinkConfig.setMaxMsgRatePerCore(Integer.valueOf(properties.getProperty(Constants.FLINK_MAX_MSG_RATE_PERCORE)));
         return flinkConfig;
     }
 
+    public static ListenerResult submitFlinkJobs(String groupId, List<InlongStreamInfo> streamInfoList)
+            throws Exception {
+        return submitFlinkJobs(groupId, streamInfoList, false, null);
+    }
+
+    public static ListenerResult submitFlinkJobs(String groupId, List<InlongStreamInfo> streamInfoList,
+            boolean isBatchJob, Boundaries boundaries) throws Exception {
+        int sinkCount = streamInfoList.stream()
+                .map(s -> s.getSinkList() == null ? 0 : s.getSinkList().size())
+                .reduce(0, Integer::sum);
+        if (sinkCount == 0) {
+            log.warn("Not any sink configured for group {} and stream list {}, skip launching sort job", groupId,
+                    streamInfoList.stream()
+                            .map(s -> s.getInlongGroupId() + ":" + s.getName()).collect(Collectors.toList()));
+            return ListenerResult.success();
+        }
+
+        List<ListenerResult> listenerResults = new ArrayList<>();
+        for (InlongStreamInfo streamInfo : streamInfoList) {
+            listenerResults.add(
+                    FlinkUtils.submitFlinkJob(
+                            streamInfo, FlinkUtils.genFlinkJobName(streamInfo), isBatchJob, boundaries));
+        }
+
+        // only one stream in group for now
+        // we can return the list of ListenerResult if support multi-stream in the future
+        List<ListenerResult> failedStreams = listenerResults.stream()
+                .filter(t -> !t.isSuccess()).collect(Collectors.toList());
+        if (failedStreams.isEmpty()) {
+            return ListenerResult.success();
+        }
+        return ListenerResult.fail(failedStreams.get(0).getRemark());
+    }
+
     public static ListenerResult submitFlinkJob(InlongStreamInfo streamInfo, String jobName) throws Exception {
+        return submitFlinkJob(streamInfo, jobName, false, null);
+    }
+
+    public static ListenerResult submitFlinkJob(InlongStreamInfo streamInfo, String jobName,
+            boolean isBatchJob, Boundaries boundaries) throws Exception {
         List<StreamSink> sinkList = streamInfo.getSinkList();
         List<String> sinkTypes = sinkList.stream().map(StreamSink::getSinkType).collect(Collectors.toList());
         if (CollectionUtils.isEmpty(sinkList) || !SinkType.containSortFlinkSink(sinkTypes)) {
@@ -256,6 +301,14 @@ public class FlinkUtils {
         String sortUrl = kvConf.get(InlongConstants.SORT_URL);
         flinkInfo.setEndpoint(sortUrl);
         flinkInfo.setInlongStreamInfoList(Collections.singletonList(streamInfo));
+        if (isBatchJob) {
+            flinkInfo.setRuntimeExecutionMode(RUNTIME_EXECUTION_MODE_BATCH);
+            flinkInfo.setBoundaryType(boundaries.getBoundaryType().getType());
+            flinkInfo.setLowerBoundary(boundaries.getLowerBound());
+            flinkInfo.setUpperBoundary(boundaries.getUpperBound());
+        } else {
+            flinkInfo.setRuntimeExecutionMode(RUNTIME_EXECUTION_MODE_STREAM);
+        }
         FlinkOperation flinkOperation = FlinkOperation.getInstance();
         try {
             flinkOperation.genPath(flinkInfo, dataflow);
@@ -293,6 +346,11 @@ public class FlinkUtils {
 
     public static String genFlinkJobName(ProcessForm processForm, InlongStreamInfo streamInfo) {
         return Constants.SORT_JOB_NAME_GENERATOR.apply(processForm) + InlongConstants.HYPHEN
+                + streamInfo.getInlongStreamId();
+    }
+
+    public static String genFlinkJobName(InlongStreamInfo streamInfo) {
+        return String.format(Constants.SORT_JOB_NAME_TEMPLATE, streamInfo.getInlongGroupId()) + InlongConstants.HYPHEN
                 + streamInfo.getInlongStreamId();
     }
 }

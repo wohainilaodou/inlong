@@ -18,10 +18,11 @@
 package org.apache.inlong.sort.standalone.v2;
 
 import org.apache.inlong.common.pojo.sort.SortConfig;
-import org.apache.inlong.common.pojo.sort.SortTaskConfig;
+import org.apache.inlong.common.pojo.sort.TaskConfig;
 import org.apache.inlong.sdk.commons.admin.AdminTask;
 import org.apache.inlong.sort.standalone.config.holder.CommonPropertiesHolder;
 import org.apache.inlong.sort.standalone.config.holder.v2.SortConfigHolder;
+import org.apache.inlong.sort.standalone.metrics.status.SortTaskStatusRepository;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flume.Context;
@@ -92,27 +93,37 @@ public class SortCluster {
                 return;
             }
             // add new task
-            for (SortTaskConfig taskConfig : newConfig.getTasks()) {
+            for (TaskConfig taskConfig : newConfig.getTasks()) {
                 String newTaskName = taskConfig.getSortTaskName();
                 if (taskMap.containsKey(newTaskName)) {
                     continue;
                 }
-                SortTask newTask = new SortTask(newTaskName);
-                newTask.start();
-                this.taskMap.put(newTaskName, newTask);
+                if (SortTaskStatusRepository.canResumeSortTask(newTaskName)) {
+                    SortTaskStatusRepository.resetStatus(newTaskName);
+                    SortTask newTask = new SortTask(newTaskName);
+                    newTask.start();
+                    this.taskMap.put(newTaskName, newTask);
+                }
             }
             // remove task
             deletingTasks.clear();
             for (Map.Entry<String, SortTask> entry : taskMap.entrySet()) {
                 String taskName = entry.getKey();
                 boolean isFound = false;
-                for (SortTaskConfig taskConfig : newConfig.getTasks()) {
+                for (TaskConfig taskConfig : newConfig.getTasks()) {
                     if (taskName.equals(taskConfig.getSortTaskName())) {
                         isFound = true;
                         break;
                     }
                 }
                 if (!isFound) {
+                    this.deletingTasks.add(entry.getValue());
+                }
+            }
+            // failPauseTask
+            for (Map.Entry<String, SortTask> entry : taskMap.entrySet()) {
+                String taskName = entry.getKey();
+                if (SortTaskStatusRepository.needPauseSortTask(taskName)) {
                     this.deletingTasks.add(entry.getValue());
                 }
             }

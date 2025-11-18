@@ -17,32 +17,20 @@
 
 package org.apache.inlong.sdk.dataproxy.network;
 
-import java.util.concurrent.atomic.AtomicLong;
+import java.security.SecureRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SequentialID {
 
-    private static final long maxId = 2000000000;
-    private String ip = null;
-    private AtomicLong id = new AtomicLong(0);
+    private static final SecureRandom sRandom = new SecureRandom(
+            Long.toString(System.nanoTime()).getBytes());
+    private final AtomicInteger id = new AtomicInteger(sRandom.nextInt());
 
-    public SequentialID(String theIp) {
-        ip = theIp;
+    public SequentialID() {
     }
 
-    public synchronized String getNextId() {
-        if (id.get() > maxId) {
-            id.set(0);
-        }
-        id.incrementAndGet();
-        return ip + "#" + id.toString() + "#" + System.currentTimeMillis();
-    }
-
-    public synchronized long getNextInt() {
-        if (id.get() > maxId) {
-            id.set(0);
-        }
-        id.incrementAndGet();
-        return id.get();
+    public int getNextInt() {
+        return id.incrementAndGet();
     }
 
 }

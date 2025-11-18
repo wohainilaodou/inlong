@@ -25,6 +25,7 @@ import {
   TableOutlined,
   EditOutlined,
   DeleteOutlined,
+  AreaChartOutlined,
 } from '@ant-design/icons';
 import HighTable from '@/ui/components/HighTable';
 import { defaultSize } from '@/configs/pagination';
@@ -33,9 +34,10 @@ import i18n from '@/i18n';
 import DetailModal from './DetailModal';
 import { useDefaultMeta, useLoadMeta, SinkMetaType } from '@/plugins';
 import request from '@/core/utils/request';
-import { pickObjectArray } from '@/core/utils';
+import { pickObjectArray, timestampFormat } from '@/core/utils';
 import { CommonInterface } from '../common';
 import { sinks } from '@/plugins/sinks';
+import DirtyModal from '@/ui/pages/common/DirtyModal';
 
 interface Props extends CommonInterface {
   inlongStreamId?: string;
@@ -58,7 +60,12 @@ const Comp = ({ inlongGroupId, inlongStreamId, readonly }: Props, ref) => {
   const [createModal, setCreateModal] = useState<Record<string, unknown>>({
     open: false,
   });
-
+  const [dirtyModal, setDirtyModal] = useState<Record<string, unknown>>({
+    open: false,
+  });
+  const onOpenDirtyModal = useCallback(({ id }) => {
+    setDirtyModal({ open: true, id });
+  }, []);
   const {
     data,
     loading,
@@ -158,25 +165,54 @@ const Comp = ({ inlongGroupId, inlongStreamId, readonly }: Props, ref) => {
   );
 
   const columns = useMemo(() => {
-    return entityColumns?.concat([
-      {
-        title: i18n.t('basic.Operating'),
-        dataIndex: 'action',
-        render: (text, record) =>
-          readonly ? (
-            '-'
-          ) : (
-            <>
-              <Button type="link" onClick={() => onEdit(record)}>
-                {i18n.t('basic.Edit')}
-              </Button>
-              <Button type="link" onClick={() => onDelete(record)}>
-                {i18n.t('basic.Delete')}
-              </Button>
-            </>
-          ),
-      } as any,
-    ]);
+    return entityColumns
+      ?.map(item => {
+        if (item.dataIndex === 'creator') {
+          return {
+            ...item,
+            render: (text, record) => (
+              <>
+                <div>{text}</div>
+                <div>{record.createTime && timestampFormat(record.createTime)}</div>
+              </>
+            ),
+          };
+        }
+        if (item.dataIndex === 'modifier') {
+          return {
+            ...item,
+            render: (text, record) => (
+              <>
+                <div>{text}</div>
+                {text ? <div>{record.modifyTime && timestampFormat(record.modifyTime)}</div> : ''}
+              </>
+            ),
+          };
+        }
+        return item;
+      })
+      .concat([
+        {
+          title: i18n.t('basic.Operating'),
+          dataIndex: 'action',
+          render: (text, record) =>
+            readonly ? (
+              '-'
+            ) : (
+              <>
+                <Button type="link" onClick={() => onEdit(record)}>
+                  {i18n.t('basic.Edit')}
+                </Button>
+                <Button type="link" onClick={() => onDelete(record)}>
+                  {i18n.t('basic.Delete')}
+                </Button>
+                <Button type="link" onClick={() => onOpenDirtyModal(record)}>
+                  {i18n.t('meta.Sinks.DirtyData')}
+                </Button>
+              </>
+            ),
+        } as any,
+      ]);
   }, [entityColumns, onDelete, onEdit, readonly]);
 
   return (
@@ -238,6 +274,9 @@ const Comp = ({ inlongGroupId, inlongStreamId, readonly }: Props, ref) => {
                   <Button key="del" type="link" onClick={() => onDelete(item)}>
                     <DeleteOutlined />
                   </Button>,
+                  <Button type="link" onClick={() => onOpenDirtyModal(item)}>
+                    <AreaChartOutlined />
+                  </Button>,
                 ]}
               >
                 <span>
@@ -276,6 +315,15 @@ const Comp = ({ inlongGroupId, inlongStreamId, readonly }: Props, ref) => {
           setCreateModal({ open: false });
         }}
         onCancel={() => setCreateModal({ open: false })}
+      />
+      <DirtyModal
+        {...dirtyModal}
+        open={dirtyModal.open as boolean}
+        onOk={async () => {
+          await getList();
+          setDirtyModal({ open: false });
+        }}
+        onCancel={() => setDirtyModal({ open: false })}
       />
     </>
   );

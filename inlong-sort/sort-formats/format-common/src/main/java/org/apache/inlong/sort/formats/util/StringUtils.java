@@ -39,7 +39,7 @@ public class StringUtils {
     private static final int STATE_QUOTING = 16;
 
     /**
-     * @see StringUtils#splitKv(String, Character, Character, Character,Character, Character)
+     * @see StringUtils#splitKv(String, Character, Character, Character,Character)
      */
     public static Map<String, String> splitKv(
             @Nonnull String text,
@@ -48,7 +48,8 @@ public class StringUtils {
             @Nullable Character escapeChar,
             @Nullable Character quoteChar) {
         List<Map<String, String>> lines =
-                splitKv(text, entryDelimiter, kvDelimiter, escapeChar, quoteChar, null);
+                splitKv(text, entryDelimiter, kvDelimiter, escapeChar, quoteChar, null,
+                        true);
         if (lines.size() == 0) {
             return new HashMap<>();
         }
@@ -77,9 +78,14 @@ public class StringUtils {
             @Nonnull Character kvDelimiter,
             @Nullable Character escapeChar,
             @Nullable Character quoteChar,
-            @Nullable Character lineDelimiter) {
+            @Nullable Character lineDelimiter,
+            @Nullable boolean isDeleteEscapeChar) {
         Map<String, String> fields = new HashMap<>();
         List<Map<String, String>> lines = new ArrayList<>();
+
+        if (text == null) {
+            return lines;
+        }
 
         StringBuilder stringBuilder = new StringBuilder();
 
@@ -96,11 +102,17 @@ public class StringUtils {
          */
         int kvState = STATE_KEY;
 
-        char lastCh = 0;
+        char nextCh = 0;
         for (int i = 0; i < text.length(); ++i) {
             char ch = text.charAt(i);
+            if ((i + 1) < text.length()) {
+                nextCh = text.charAt(i + 1);
+            } else {
+                nextCh = 0;
+            }
             if (ch == kvDelimiter) {
                 switch (state) {
+                    // match previous kv delimiter first when there are more than one kvDelimiter
                     case STATE_KEY:
                         key = stringBuilder.toString();
                         stringBuilder.setLength(0);
@@ -120,24 +132,19 @@ public class StringUtils {
             } else if (ch == entryDelimiter) {
                 switch (state) {
                     case STATE_KEY:
-                        key = lastKey;
-                        if (lastValue == null) {
-                            value = ch + stringBuilder.toString();
-                        } else {
-                            value = lastValue + ch + stringBuilder.toString();
-                        }
-                        fields.put(key, value);
-                        lastKey = key;
-                        lastValue = value;
-                        stringBuilder.setLength(0);
+                        stringBuilder.append(ch);
                         break;
                     case STATE_VALUE:
-                        value = stringBuilder.toString();
-                        fields.put(key, value);
-                        lastKey = key;
-                        lastValue = value;
-                        stringBuilder.setLength(0);
-                        state = STATE_KEY;
+                        if (nextCh == entryDelimiter) {
+                            stringBuilder.append(ch);
+                        } else {
+                            value = stringBuilder.toString();
+                            fields.put(key, value);
+                            lastKey = key;
+                            lastValue = value;
+                            stringBuilder.setLength(0);
+                            state = STATE_KEY;
+                        }
                         break;
                     case STATE_ESCAPING:
                         stringBuilder.append(ch);
@@ -150,15 +157,12 @@ public class StringUtils {
             } else if (escapeChar != null && ch == escapeChar) {
                 switch (state) {
                     case STATE_KEY:
-                        if (lastCh != 0) {
-                            stringBuilder.append(lastCh);
-                        }
-                        kvState = state;
-                        state = STATE_ESCAPING;
-                        break;
                     case STATE_VALUE:
                         kvState = state;
                         state = STATE_ESCAPING;
+                        if (!isDeleteEscapeChar) {
+                            stringBuilder.append(ch);
+                        }
                         break;
                     case STATE_ESCAPING:
                         stringBuilder.append(ch);
@@ -171,12 +175,6 @@ public class StringUtils {
             } else if (quoteChar != null && ch == quoteChar) {
                 switch (state) {
                     case STATE_KEY:
-                        if (lastCh != 0) {
-                            stringBuilder.append(lastCh);
-                        }
-                        kvState = state;
-                        state = STATE_QUOTING;
-                        break;
                     case STATE_VALUE:
                         kvState = state;
                         state = STATE_QUOTING;
@@ -192,20 +190,26 @@ public class StringUtils {
             } else if (lineDelimiter != null && ch == lineDelimiter) {
                 switch (state) {
                     case STATE_KEY:
+                        String remainingKey = stringBuilder.toString();
                         key = lastKey;
-                        stringBuilder.append(lastValue).append(lastCh);
+                        stringBuilder.setLength(0);
+                        stringBuilder.append(lastValue).append(entryDelimiter).append(remainingKey);
                         value = stringBuilder.toString();
                         fields.put(key, value);
+                        Map<String, String> copyFields = new HashMap<>();
+                        copyFields.putAll(fields);
+                        lines.add(copyFields);
+                        stringBuilder.setLength(0);
+                        fields.clear();
                         lastKey = null;
                         lastValue = null;
-                        stringBuilder.setLength(0);
                         break;
                     case STATE_VALUE:
                         lastKey = null;
                         lastValue = null;
                         value = stringBuilder.toString();
                         fields.put(key, value);
-                        Map<String, String> copyFields = new HashMap<>();
+                        copyFields = new HashMap<>();
                         copyFields.putAll(fields);
                         lines.add(copyFields);
                         stringBuilder.setLength(0);
@@ -222,14 +226,22 @@ public class StringUtils {
                 }
             } else {
                 stringBuilder.append(ch);
+                switch (state) {
+                    case STATE_ESCAPING:
+                        state = kvState;
+                }
             }
-            lastCh = ch;
         }
 
         switch (state) {
             case STATE_KEY:
                 if (lastKey != null && lastValue != null && text != null) {
-                    fields.put(lastKey, lastValue + lastCh);
+                    String remainingKey = stringBuilder.toString();
+                    key = lastKey;
+                    stringBuilder.setLength(0);
+                    stringBuilder.append(lastValue).append(entryDelimiter).append(remainingKey);
+                    value = stringBuilder.toString();
+                    fields.put(key, value);
                 }
                 lines.add(fields);
                 return lines;
@@ -240,14 +252,19 @@ public class StringUtils {
                 return lines;
             case STATE_ESCAPING:
             case STATE_QUOTING:
-                value = stringBuilder.toString();
-                String oldValue = fields.get(key);
-                if (value != null && !"".equals(value)
-                        && oldValue != null && !"".equals(oldValue)) {
-                    fields.put(key, oldValue + value);
-                } else if (value != null && !"".equals(value)) {
-                    fields.put(key, value);
+                switch (kvState) {
+                    case STATE_VALUE:
+                        value = stringBuilder.toString();
+                        fields.put(key, value);
+                        break;
+                    case STATE_KEY:
+                        if (lastKey != null) {
+                            value = stringBuilder.toString();
+                            String oldValue = fields.get(key);
+                            fields.put(key, oldValue + entryDelimiter + value);
+                        }
                 }
+
                 lines.add(fields);
                 return lines;
             default:
@@ -357,7 +374,7 @@ public class StringUtils {
     /**
      * Splits a single line of csv text.
      *
-     * @see StringUtils#splitCsv(String, Character, Character, Character, Character, boolean)
+     * @see StringUtils#splitCsv(String, Character, Character, Character, Character)
      */
     public static String[] splitCsv(
             @Nonnull String text,
@@ -372,7 +389,7 @@ public class StringUtils {
     }
 
     /**
-     * @see StringUtils#splitCsv(String, Character, Character, Character, Character, boolean)
+     * @see StringUtils#splitCsv(String, Character, Character, Character, Character)
      */
     public static String[][] splitCsv(
             @Nonnull String text,
@@ -380,7 +397,23 @@ public class StringUtils {
             @Nullable Character escapeChar,
             @Nullable Character quoteChar,
             @Nullable Character lineDelimiter) {
-        return splitCsv(text, delimiter, escapeChar, quoteChar, lineDelimiter, false);
+        return splitCsv(text, delimiter, escapeChar, quoteChar, lineDelimiter,
+                false, true);
+    }
+
+    /**
+     * @see StringUtils#splitCsv(String, Character, Character, Character, Character, boolean, boolean)
+     */
+    public static String[][] splitCsv(
+            @Nonnull String text,
+            @Nonnull Character delimiter,
+            @Nullable Character escapeChar,
+            @Nullable Character quoteChar,
+            @Nullable Character lineDelimiter,
+            boolean deleteHeadDelimiter,
+            boolean isDeleteEscapeChar) {
+        return splitCsv(text, delimiter, escapeChar, quoteChar, lineDelimiter,
+                deleteHeadDelimiter, isDeleteEscapeChar, null);
     }
 
     /**
@@ -398,6 +431,7 @@ public class StringUtils {
      * @param lineDelimiter The delimiter between lines, e.g. '\n'.
      * @param deleteHeadDelimiter If true and the leading character of a line
      *                            is a delimiter, it will be ignored.
+     * @param maxFieldSize The max filed size of one single line
      * @return A 2-D String array representing the parsed data, where the 1st
      * dimension is row and the 2nd dimension is column.
      */
@@ -407,9 +441,17 @@ public class StringUtils {
             @Nullable Character escapeChar,
             @Nullable Character quoteChar,
             @Nullable Character lineDelimiter,
-            boolean deleteHeadDelimiter) {
+            boolean deleteHeadDelimiter,
+            boolean isDeleteEscapeChar,
+            @Nullable Integer maxFieldSize) {
+        if (maxFieldSize != null && maxFieldSize <= 0) {
+            return new String[0][];
+        }
+
         List<String[]> lines = new ArrayList<>();
         List<String> fields = new ArrayList<>();
+        int splittedSize = 0;
+        int lastFieldStartIndex = 0;
 
         StringBuilder stringBuilder = new StringBuilder();
         int state = STATE_NORMAL;
@@ -427,6 +469,14 @@ public class StringUtils {
                         String field = stringBuilder.toString();
                         fields.add(field);
                         stringBuilder.setLength(0);
+
+                        splittedSize++;
+                        // if the last field, mark the last filed start index
+                        if (maxFieldSize != null && splittedSize == maxFieldSize - 1) {
+                            if (i + 1 < text.length()) {
+                                lastFieldStartIndex = i + 1;
+                            }
+                        }
                         break;
                     case STATE_ESCAPING:
                         stringBuilder.append(ch);
@@ -440,6 +490,9 @@ public class StringUtils {
                 switch (state) {
                     case STATE_NORMAL:
                         state = STATE_ESCAPING;
+                        if (!isDeleteEscapeChar) {
+                            stringBuilder.append(ch);
+                        }
                         break;
                     case STATE_ESCAPING:
                         stringBuilder.append(ch);
@@ -467,10 +520,19 @@ public class StringUtils {
                     case STATE_NORMAL:
                         String field = stringBuilder.toString();
                         fields.add(field);
-                        lines.add(fields.toArray(new String[0]));
 
+                        // if the max field size < the real field size,
+                        // remove the extra fields and copy the latest field from lastFieldStartIndex to current index
+                        if (maxFieldSize != null && fields.size() > maxFieldSize) {
+                            fields = replaceLastField(fields, maxFieldSize, text, lastFieldStartIndex, i);
+                        }
+                        // reset the lastFieldStartIndex for new line
+                        lastFieldStartIndex = i + 1;
+
+                        lines.add(fields.toArray(new String[0]));
                         stringBuilder.setLength(0);
                         fields.clear();
+                        splittedSize = 0;
                         break;
                     case STATE_ESCAPING:
                         stringBuilder.append(ch);
@@ -494,6 +556,11 @@ public class StringUtils {
             case STATE_QUOTING:
                 String field = stringBuilder.toString();
                 fields.add(field);
+
+                if (maxFieldSize != null && fields.size() > maxFieldSize) {
+                    fields = replaceLastField(fields, maxFieldSize, text, lastFieldStartIndex, text.length());
+                }
+
                 lines.add(fields.toArray(new String[0]));
 
                 String[][] result = new String[lines.size()][];
@@ -504,6 +571,28 @@ public class StringUtils {
             default:
                 throw new IllegalStateException(String.format("Text=[%s].", text));
         }
+    }
+
+    /**
+     * if the max field size < the real field size,
+     * remove the extra fields and copy the latest field from lastFieldStartIndex to lastFieldEndIndex
+     *
+     * @param fields Target field list
+     * @param maxFieldSize Specified max fieldSize
+     * @param text Origin text
+     * @param lastFieldStartIndex Start index of last field
+     * @param lastFieldEndIndex End index of last field
+     */
+    private static List<String> replaceLastField(
+            List<String> fields,
+            int maxFieldSize,
+            String text,
+            int lastFieldStartIndex,
+            int lastFieldEndIndex) {
+        List<String> newField = fields.subList(0, maxFieldSize - 1);
+        String last = text.substring(lastFieldStartIndex, lastFieldEndIndex);
+        newField.add(last);
+        return newField;
     }
 
     /**

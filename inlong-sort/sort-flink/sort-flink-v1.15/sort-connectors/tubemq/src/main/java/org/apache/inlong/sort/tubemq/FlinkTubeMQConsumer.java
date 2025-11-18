@@ -20,6 +20,7 @@ package org.apache.inlong.sort.tubemq;
 import org.apache.inlong.sort.tubemq.table.DynamicTubeMQDeserializationSchema;
 import org.apache.inlong.sort.tubemq.table.TubeMQOptions;
 import org.apache.inlong.tubemq.client.config.ConsumerConfig;
+import org.apache.inlong.tubemq.client.consumer.ConsumeOffsetInfo;
 import org.apache.inlong.tubemq.client.consumer.ConsumePosition;
 import org.apache.inlong.tubemq.client.consumer.ConsumerResult;
 import org.apache.inlong.tubemq.client.consumer.PullMessageConsumer;
@@ -28,6 +29,7 @@ import org.apache.inlong.tubemq.corebase.Message;
 import org.apache.inlong.tubemq.corebase.TErrCodeConstants;
 
 import org.apache.flink.api.common.functions.util.ListCollector;
+import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.OperatorStateStore;
@@ -64,7 +66,8 @@ import static org.apache.flink.util.TimeUtils.parseDuration;
  */
 public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
         implements
-            CheckpointedFunction {
+            CheckpointedFunction,
+            CheckpointListener {
 
     private static final Logger LOG = LoggerFactory.getLogger(FlinkTubeMQConsumer.class);
     private static final String TUBE_OFFSET_STATE = "tube-offset-state";
@@ -141,6 +144,10 @@ public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
      * The TubeMQ pull consumer.
      */
     private transient PullMessageConsumer messagePullConsumer;
+    /**
+     * The restore checkpoint id.
+     */
+    private transient Long restoredCheckpointId;
 
     /**
      * Build a TubeMQ source function
@@ -187,11 +194,12 @@ public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
 
     @Override
     public void initializeState(FunctionInitializationContext context) throws Exception {
+        restoredCheckpointId = context.getRestoredCheckpointId().orElse(-1L);
+
         TypeInformation<Tuple2<String, Long>> typeInformation =
                 new TupleTypeInfo<>(STRING_TYPE_INFO, LONG_TYPE_INFO);
         ListStateDescriptor<Tuple2<String, Long>> stateDescriptor =
                 new ListStateDescriptor<>(TUBE_OFFSET_STATE, typeInformation);
-
         OperatorStateStore stateStore = context.getOperatorStateStore();
         offsetsState = stateStore.getListState(stateDescriptor);
         currentOffsets = new HashMap<>();
@@ -221,8 +229,13 @@ public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
         messagePullConsumer = messageSessionFactory.createPullConsumer(consumerConfig);
         messagePullConsumer.subscribe(topic, streamIdSet);
         String jobId = getRuntimeContext().getJobId().toString();
-        messagePullConsumer.completeSubscribe(sessionKey.concat(jobId), numTasks, true, currentOffsets);
-
+        int attempt = getRuntimeContext().getAttemptNumber();
+        String realSessionKey = sessionKey + "_" + jobId + "_" + restoredCheckpointId + "_" + attempt;
+        LOG.info("try to subscribe topic {} with sessionKey: {}, currentOffsets: {}.",
+                topic, realSessionKey, currentOffsets);
+        messagePullConsumer.completeSubscribe(realSessionKey, numTasks, true, currentOffsets);
+        LOG.info("Subscribe topic {} success, sessionKey: {}, currentOffsets: {}.",
+                topic, realSessionKey, currentOffsets);
         running = true;
     }
 
@@ -257,18 +270,25 @@ public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
             lastConsumeInstant = Instant.now();
 
             List<T> records = new ArrayList<>();
-            lastConsumeInstant = getRecords(lastConsumeInstant, messageList, records);
 
             synchronized (ctx.getCheckpointLock()) {
-
+                lastConsumeInstant = getRecords(lastConsumeInstant, messageList, records);
                 for (T record : records) {
                     ctx.collect(record);
                 }
-                currentOffsets.put(
-                        consumeResult.getPartitionKey(),
-                        consumeResult.getCurrOffset());
-            }
 
+                ConsumerResult confirmResult = confirmOffset(consumeResult);
+                if (confirmResult != null && confirmResult.isSuccess()) {
+                    currentOffsets.put(confirmResult.getPartitionKey(), confirmResult.getCurrOffset());
+                } else {
+                    LOG.warn("Confirm offset failed, fallback to use offset in consume result.");
+                    currentOffsets.put(consumeResult.getPartitionKey(), consumeResult.getCurrOffset());
+                }
+            }
+        }
+    }
+    private ConsumerResult confirmOffset(ConsumerResult consumeResult) {
+        try {
             ConsumerResult confirmResult = messagePullConsumer
                     .confirmConsume(consumeResult.getConfirmContext(), true);
             if (!confirmResult.isSuccess()) {
@@ -283,9 +303,12 @@ public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
                             confirmResult.getErrMsg());
                 }
             }
+            return confirmResult;
+        } catch (Exception e) {
+            LOG.error("Confirm tube offset exception.", e);
         }
+        return null;
     }
-
     private Instant getRecords(Instant lastConsumeInstant, List<Message> messageList, List<T> records)
             throws Exception {
         if (messageList != null) {
@@ -311,13 +334,20 @@ public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
 
     @Override
     public void snapshotState(FunctionSnapshotContext context) throws Exception {
-
+        deserializationSchema.setCurrentCheckpointId(context.getCheckpointId());
+        // Make sure snapshot all tube partitions' offset to avoid inconsistency.
+        Map<String, ConsumeOffsetInfo> curConsumedPartitions = messagePullConsumer.getCurConsumedPartitions();
+        for (Map.Entry<String, ConsumeOffsetInfo> consumedPartition : curConsumedPartitions.entrySet()) {
+            ConsumeOffsetInfo consumeOffsetInfo = consumedPartition.getValue();
+            if (!currentOffsets.containsKey(consumeOffsetInfo.getPartitionKey())) {
+                LOG.info("snapshot assigned but not consume partition: {}", consumedPartition.getValue());
+                currentOffsets.put(consumeOffsetInfo.getPartitionKey(), consumedPartition.getValue().getCurrOffset());
+            }
+        }
         offsetsState.clear();
         for (Map.Entry<String, Long> entry : currentOffsets.entrySet()) {
             offsetsState.add(new Tuple2<>(entry.getKey(), entry.getValue()));
         }
-
-        deserializationSchema.flushAudit();
 
         LOG.info("Successfully save the offsets in checkpoint {}: {}.",
                 context.getCheckpointId(), currentOffsets);
@@ -352,5 +382,16 @@ public class FlinkTubeMQConsumer<T> extends RichParallelSourceFunction<T>
         super.close();
 
         LOG.info("Closed the tubemq source.");
+    }
+
+    @Override
+    public void notifyCheckpointComplete(long checkpointId) throws Exception {
+        deserializationSchema.flushAudit();
+        deserializationSchema.updateLastCheckpointId(checkpointId);
+    }
+
+    @Override
+    public void notifyCheckpointAborted(long checkpointId) throws Exception {
+        CheckpointListener.super.notifyCheckpointAborted(checkpointId);
     }
 }

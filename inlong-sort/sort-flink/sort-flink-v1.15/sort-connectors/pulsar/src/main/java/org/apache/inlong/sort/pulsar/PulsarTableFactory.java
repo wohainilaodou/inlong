@@ -47,11 +47,8 @@ import java.util.stream.Stream;
 import static org.apache.flink.connector.pulsar.common.config.PulsarOptions.PULSAR_ADMIN_URL;
 import static org.apache.flink.connector.pulsar.common.config.PulsarOptions.PULSAR_SERVICE_URL;
 import static org.apache.flink.connector.pulsar.source.PulsarSourceOptions.PULSAR_SUBSCRIPTION_NAME;
-import static org.apache.flink.table.factories.FactoryUtil.FORMAT;
 import static org.apache.flink.table.factories.FactoryUtil.SINK_PARALLELISM;
-import static org.apache.inlong.sort.base.Constants.AUDIT_KEYS;
-import static org.apache.inlong.sort.base.Constants.INLONG_AUDIT;
-import static org.apache.inlong.sort.base.Constants.INLONG_METRIC;
+import static org.apache.inlong.sort.base.Constants.*;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptionUtils.createKeyFormatProjection;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptionUtils.createValueFormatProjection;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptionUtils.getKeyDecodingFormat;
@@ -69,6 +66,7 @@ import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SERVICE_URL;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SINK_CUSTOM_TOPIC_ROUTER;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SINK_MESSAGE_DELAY_INTERVAL;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SINK_TOPIC_ROUTING_MODE;
+import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SOURCE_START_FROM_MESSAGE_ID;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SOURCE_START_FROM_PUBLISH_TIME;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SOURCE_STOP_AFTER_MESSAGE_ID;
 import static org.apache.inlong.sort.pulsar.PulsarTableOptions.SOURCE_STOP_AT_MESSAGE_ID;
@@ -94,8 +92,6 @@ public class PulsarTableFactory implements DynamicTableSourceFactory {
 
     public static final boolean UPSERT_DISABLED = false;
 
-    public static boolean innerFormat = false;
-
     @Override
     public DynamicTableSource createDynamicTableSource(Context context) {
         FactoryUtil.TableFactoryHelper helper = FactoryUtil.createTableFactoryHelper(this, context);
@@ -105,8 +101,6 @@ public class PulsarTableFactory implements DynamicTableSourceFactory {
         final DecodingFormat<DeserializationSchema<RowData>> valueDecodingFormat =
                 getValueDecodingFormat(helper);
         ReadableConfig tableOptions = helper.getOptions();
-
-        innerFormat = ExtractNode.INLONG_MSG.equals(tableOptions.get(FORMAT));
 
         // Validate configs are not conflict; each options is consumed; no unwanted configs
         // PulsarOptions, PulsarSourceOptions and PulsarSinkOptions is not part of the validation.
@@ -129,7 +123,7 @@ public class PulsarTableFactory implements DynamicTableSourceFactory {
         final StartCursor startCursor = getStartCursor(tableOptions);
         final StopCursor stopCursor = getStopCursor(tableOptions);
         final SubscriptionType subscriptionType = getSubscriptionType(tableOptions);
-
+        final boolean enableLogReport = context.getConfiguration().get(ENABLE_LOG_REPORT);
         // Forward source configs
         final Properties properties = getPulsarProperties(tableOptions);
         properties.setProperty(PULSAR_ADMIN_URL.key(), tableOptions.get(ADMIN_URL));
@@ -159,7 +153,6 @@ public class PulsarTableFactory implements DynamicTableSourceFactory {
                         valueDecodingFormat,
                         valueProjection,
                         UPSERT_DISABLED,
-                        innerFormat,
                         inlongMetric,
                         auditHostAndPorts,
                         auditKeys);
@@ -168,7 +161,6 @@ public class PulsarTableFactory implements DynamicTableSourceFactory {
         final DecodingFormat<DeserializationSchema<RowData>> decodingFormatForMetadataPushdown =
                 valueDecodingFormat;
         final ChangelogMode changelogMode = decodingFormatForMetadataPushdown.getChangelogMode();
-
         return new PulsarTableSource(
                 deserializationSchemaFactory,
                 decodingFormatForMetadataPushdown,
@@ -177,7 +169,8 @@ public class PulsarTableFactory implements DynamicTableSourceFactory {
                 properties,
                 startCursor,
                 stopCursor,
-                subscriptionType);
+                subscriptionType,
+                enableLogReport);
     }
 
     @Override
@@ -198,6 +191,7 @@ public class PulsarTableFactory implements DynamicTableSourceFactory {
                 SOURCE_SUBSCRIPTION_NAME,
                 SOURCE_SUBSCRIPTION_TYPE,
                 STARTUP_MODE,
+                SOURCE_START_FROM_MESSAGE_ID,
                 SOURCE_START_FROM_PUBLISH_TIME,
                 SOURCE_STOP_AT_MESSAGE_ID,
                 SOURCE_STOP_AFTER_MESSAGE_ID,

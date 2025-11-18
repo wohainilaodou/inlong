@@ -19,7 +19,7 @@ package org.apache.inlong.sort.sqlserver;
 
 import org.apache.inlong.sort.base.metric.MetricOption;
 import org.apache.inlong.sort.base.metric.MetricsCollector;
-import org.apache.inlong.sort.base.metric.SourceMetricData;
+import org.apache.inlong.sort.base.metric.SourceExactlyMetric;
 
 import com.ververica.cdc.debezium.table.AppendMetadataCollector;
 import com.ververica.cdc.debezium.table.DebeziumChangelogMode;
@@ -101,7 +101,7 @@ public final class RowDataDebeziumDeserializeSchema implements DebeziumDeseriali
     /** Changelog Mode to use for encoding changes in Flink internal data structure. */
     private final DebeziumChangelogMode changelogMode;
     private final MetricOption metricOption;
-    private SourceMetricData sourceMetricData;
+    private SourceExactlyMetric sourceExactlyMetric;
 
     /** Returns a builder to build {@link RowDataDebeziumDeserializeSchema}. */
     public static Builder newBuilder() {
@@ -133,43 +133,55 @@ public final class RowDataDebeziumDeserializeSchema implements DebeziumDeseriali
     @Override
     public void open() {
         if (metricOption != null) {
-            sourceMetricData = new SourceMetricData(metricOption);
+            sourceExactlyMetric = new SourceExactlyMetric(metricOption);
         }
     }
 
     @Override
     public void deserialize(SourceRecord record, Collector<RowData> out) throws Exception {
-        Envelope.Operation op = Envelope.operationFor(record);
-        Struct value = (Struct) record.value();
-        Schema valueSchema = record.valueSchema();
-        if (op == Envelope.Operation.CREATE || op == Envelope.Operation.READ) {
-            GenericRowData insert = extractAfterRow(value, valueSchema);
-            validator.validate(insert, RowKind.INSERT);
-            insert.setRowKind(RowKind.INSERT);
-            if (sourceMetricData != null) {
-                out = new MetricsCollector<>(out, sourceMetricData);
-            }
-            emit(record, insert, out);
-        } else if (op == Envelope.Operation.DELETE) {
-            GenericRowData delete = extractBeforeRow(value, valueSchema);
-            validator.validate(delete, RowKind.DELETE);
-            delete.setRowKind(RowKind.DELETE);
-            emit(record, delete, out);
-        } else {
-            if (changelogMode == DebeziumChangelogMode.ALL) {
-                GenericRowData before = extractBeforeRow(value, valueSchema);
-                validator.validate(before, RowKind.UPDATE_BEFORE);
-                before.setRowKind(RowKind.UPDATE_BEFORE);
-                emit(record, before, out);
-            }
+        long deserializeStartTime = System.currentTimeMillis();
+        try {
+            Envelope.Operation op = Envelope.operationFor(record);
+            Struct value = (Struct) record.value();
+            Schema valueSchema = record.valueSchema();
+            if (op == Envelope.Operation.CREATE || op == Envelope.Operation.READ) {
+                GenericRowData insert = extractAfterRow(value, valueSchema);
+                validator.validate(insert, RowKind.INSERT);
+                insert.setRowKind(RowKind.INSERT);
+                if (sourceExactlyMetric != null) {
+                    out = new MetricsCollector<>(out, sourceExactlyMetric);
+                }
+                emit(record, insert, out);
+            } else if (op == Envelope.Operation.DELETE) {
+                GenericRowData delete = extractBeforeRow(value, valueSchema);
+                validator.validate(delete, RowKind.DELETE);
+                delete.setRowKind(RowKind.DELETE);
+                emit(record, delete, out);
+            } else {
+                if (changelogMode == DebeziumChangelogMode.ALL) {
+                    GenericRowData before = extractBeforeRow(value, valueSchema);
+                    validator.validate(before, RowKind.UPDATE_BEFORE);
+                    before.setRowKind(RowKind.UPDATE_BEFORE);
+                    emit(record, before, out);
+                }
 
-            GenericRowData after = extractAfterRow(value, valueSchema);
-            validator.validate(after, RowKind.UPDATE_AFTER);
-            after.setRowKind(RowKind.UPDATE_AFTER);
-            if (sourceMetricData != null) {
-                out = new MetricsCollector<>(out, sourceMetricData);
+                GenericRowData after = extractAfterRow(value, valueSchema);
+                validator.validate(after, RowKind.UPDATE_AFTER);
+                after.setRowKind(RowKind.UPDATE_AFTER);
+                if (sourceExactlyMetric != null) {
+                    out = new MetricsCollector<>(out, sourceExactlyMetric);
+                }
+                emit(record, after, out);
             }
-            emit(record, after, out);
+            if (sourceExactlyMetric != null) {
+                sourceExactlyMetric.incNumDeserializeSuccess();
+                sourceExactlyMetric.recordDeserializeDelay(System.currentTimeMillis() - deserializeStartTime);
+            }
+        } catch (Exception e) {
+            if (sourceExactlyMetric != null) {
+                sourceExactlyMetric.incNumDeserializeError();
+            }
+            throw e;
         }
     }
 
@@ -678,5 +690,28 @@ public final class RowDataDebeziumDeserializeSchema implements DebeziumDeseriali
                 return converter.convert(dbzObj, schema);
             }
         };
+    }
+
+    public void flushAudit() {
+        if (sourceExactlyMetric != null) {
+            sourceExactlyMetric.flushAudit();
+        }
+    }
+
+    public void updateCurrentCheckpointId(long checkpointId) {
+        if (sourceExactlyMetric != null) {
+            sourceExactlyMetric.updateCurrentCheckpointId(checkpointId);
+        }
+    }
+
+    public void updateLastCheckpointId(long checkpointId) {
+        if (sourceExactlyMetric != null) {
+            sourceExactlyMetric.updateLastCheckpointId(checkpointId);
+        }
+    }
+
+    /** allow DebeziumSourceFunction to set the SourceExactlyMetric */
+    public void setSourceExactlyMetric(SourceExactlyMetric sourceExactlyMetric) {
+        this.sourceExactlyMetric = sourceExactlyMetric;
     }
 }

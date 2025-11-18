@@ -19,6 +19,7 @@ package org.apache.inlong.sort.formats.inlongmsg;
 
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.RowFormatInfo;
 import org.apache.inlong.sort.formats.base.FieldToRowDataConverters;
+import org.apache.inlong.sort.formats.base.FormatMsg;
 import org.apache.inlong.sort.formats.base.TableFormatUtils;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -75,6 +76,11 @@ public class InLongMsgUtils {
 
     public static final String DEFAULT_TIME_FIELD_NAME = "inlongmsg_time";
     public static final String DEFAULT_ATTRIBUTES_FIELD_NAME = "inlongmsg_attributes";
+
+    public static final boolean DEFAULT_IS_RETAIN_PREDEFINED_FIELD = false;
+    public static final boolean DEFAULT_IS_DELETE_ESCAPE_CHAR = true;
+    public static final boolean DEFAULT_IS_PATCH_ESCAPE_CHAR = false;
+    public static final boolean DEFAULT_IS_DELETE_HEAD_DELIMITER = false;
 
     private static final FieldToRowDataConverters.FieldToRowDataConverter TIME_FIELD_CONVERTER =
             FieldToRowDataConverters.createConverter(new TimestampType());
@@ -393,6 +399,17 @@ public class InLongMsgUtils {
         }
 
         return producedRow;
+    }
+
+    public static FormatMsg decorateFormatMsgWithNeededHeadFields(
+            @Nullable String timeFieldName,
+            @Nullable String attributesFieldName,
+            Timestamp time,
+            Map<String, String> attributes,
+            FormatMsg formatMsg) {
+        formatMsg.setRowData(decorateRowDataWithNeededHeadFields(timeFieldName, attributesFieldName, time, attributes,
+                (GenericRowData) formatMsg.getRowData()));
+        return formatMsg;
     }
 
     public static GenericRowData decorateRowDataWithNeededHeadFields(

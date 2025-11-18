@@ -29,7 +29,7 @@ public class CommonConstants {
     public static final String DEFAULT_PROXY_INLONG_STREAM_ID = "default_inlong_stream_id";
 
     public static final String PROXY_TOTAL_ASYNC_PROXY_SIZE = "proxy.total.async.proxy.size";
-    public static final int DEFAULT_PROXY_TOTAL_ASYNC_PROXY_SIZE = 200 * 1024 * 1024;
+    public static final int DEFAULT_PROXY_TOTAL_ASYNC_PROXY_SIZE_KB = 200 * 1024;
 
     public static final String PROXY_ALIVE_CONNECTION_NUM = "proxy.alive.connection.num";
     public static final int DEFAULT_PROXY_ALIVE_CONNECTION_NUM = 10;
@@ -41,7 +41,7 @@ public class CommonConstants {
     public static final boolean DEFAULT_PROXY_IS_COMPRESS = true;
 
     public static final String PROXY_MAX_SENDER_PER_GROUP = "proxy.max.sender.per.group";
-    public static final int DEFAULT_PROXY_MAX_SENDER_PER_GROUP = 10;
+    public static final int DEFAULT_PROXY_MAX_SENDER_PER_GROUP = 3;
 
     // max size of message list
     public static final String PROXY_PACKAGE_MAX_SIZE = "proxy.package.maxSize";
@@ -59,7 +59,7 @@ public class CommonConstants {
     public static final int DEFAULT_PROXY_PACKAGE_MAX_TIMEOUT_MS = 4 * 1000;
 
     public static final String PROXY_BATCH_FLUSH_INTERVAL = "proxy.batch.flush.interval";
-    public static final int DEFAULT_PROXY_BATCH_FLUSH_INTERVAL = 100;
+    public static final int DEFAULT_PROXY_BATCH_FLUSH_INTERVAL = 1;
 
     public static final String PROXY_SENDER_MAX_TIMEOUT = "proxy.sender.maxTimeout";
     // max timeout in seconds.
@@ -67,9 +67,6 @@ public class CommonConstants {
 
     public static final String PROXY_SENDER_MAX_RETRY = "proxy.sender.maxRetry";
     public static final int DEFAULT_PROXY_SENDER_MAX_RETRY = 5;
-
-    public static final String PROXY_IS_FILE = "proxy.isFile";
-    public static final boolean DEFAULT_IS_FILE = false;
 
     public static final String PROXY_CLIENT_IO_THREAD_NUM = "client.iothread.num";
     public static final int DEFAULT_PROXY_CLIENT_IO_THREAD_NUM =
@@ -89,9 +86,9 @@ public class CommonConstants {
     public static final String PROXY_KEY_DATA = "dataKey";
 
     public static final int DEFAULT_FILE_MAX_NUM = 4096;
-    public static final String TASK_ID_PREFIX = "task_";
-    public static final String INSTANCE_ID_PREFIX = "ins_";
-    public static final String OFFSET_ID_PREFIX = "offset_";
+    public static final String TASK_ID_PREFIX = "task";
+    public static final String INSTANCE_ID_PREFIX = "ins";
+    public static final String OFFSET_ID_PREFIX = "offset";
     public static final String AGENT_OS_NAME = "os.name";
     public static final String AGENT_NIX_OS = "nix";
     public static final String AGENT_NUX_OS = "nux";

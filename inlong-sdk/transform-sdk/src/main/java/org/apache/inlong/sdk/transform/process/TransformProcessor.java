@@ -17,129 +17,96 @@
 
 package org.apache.inlong.sdk.transform.process;
 
-import org.apache.inlong.sdk.transform.decode.CsvSourceDecoder;
-import org.apache.inlong.sdk.transform.decode.JsonSourceDecoder;
-import org.apache.inlong.sdk.transform.decode.KvSourceDecoder;
-import org.apache.inlong.sdk.transform.decode.PbSourceDecoder;
 import org.apache.inlong.sdk.transform.decode.SourceData;
 import org.apache.inlong.sdk.transform.decode.SourceDecoder;
-import org.apache.inlong.sdk.transform.encode.CsvSinkEncoder;
 import org.apache.inlong.sdk.transform.encode.DefaultSinkData;
-import org.apache.inlong.sdk.transform.encode.KvSinkEncoder;
-import org.apache.inlong.sdk.transform.encode.SinkData;
 import org.apache.inlong.sdk.transform.encode.SinkEncoder;
-import org.apache.inlong.sdk.transform.pojo.CsvSinkInfo;
-import org.apache.inlong.sdk.transform.pojo.CsvSourceInfo;
 import org.apache.inlong.sdk.transform.pojo.FieldInfo;
-import org.apache.inlong.sdk.transform.pojo.JsonSourceInfo;
-import org.apache.inlong.sdk.transform.pojo.KvSinkInfo;
-import org.apache.inlong.sdk.transform.pojo.KvSourceInfo;
-import org.apache.inlong.sdk.transform.pojo.PbSourceInfo;
-import org.apache.inlong.sdk.transform.pojo.SinkInfo;
-import org.apache.inlong.sdk.transform.pojo.SourceInfo;
 import org.apache.inlong.sdk.transform.pojo.TransformConfig;
 import org.apache.inlong.sdk.transform.process.operator.ExpressionOperator;
 import org.apache.inlong.sdk.transform.process.operator.OperatorTools;
+import org.apache.inlong.sdk.transform.process.parser.ColumnParser;
 import org.apache.inlong.sdk.transform.process.parser.ValueParser;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserManager;
+import net.sf.jsqlparser.schema.Column;
+import net.sf.jsqlparser.statement.select.AllColumns;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectExpressionItem;
 import net.sf.jsqlparser.statement.select.SelectItem;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.StringReader;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 /**
  * TransformProcessor
- * 
+ *
  */
-public class TransformProcessor {
+public class TransformProcessor<I, O> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(TransformProcessor.class);
+    private static final Map<String, Object> EMPTY_EXT_PARAMS = ImmutableMap.of();
+    private static final String DUMMY_SELECT = "select *";
 
-    private TransformConfig config;
-    private SourceDecoder decoder;
-    private SinkEncoder encoder;
-    private Charset srcCharset = Charset.defaultCharset();
-    protected Charset sinkCharset = Charset.defaultCharset();
+    private final TransformConfig config;
+    private final SourceDecoder<I> decoder;
+    private final SinkEncoder<O> encoder;
 
     private PlainSelect transformSelect;
     private ExpressionOperator where;
-    private Map<String, ValueParser> selectItemMap;
+    private List<ValueParserNode> selectItems;
 
-    private ObjectMapper objectMapper = new ObjectMapper();
+    private List<String> sinkFieldList;
 
-    public TransformProcessor(String configString)
-            throws JsonMappingException, JsonProcessingException, JSQLParserException {
-        TransformConfig config = this.objectMapper.readValue(configString, TransformConfig.class);
-        this.init(config);
+    public static <I, O> TransformProcessor<I, O> create(
+            TransformConfig config,
+            SourceDecoder<I> decoder,
+            SinkEncoder<O> encoder) throws JSQLParserException {
+        return new TransformProcessor<>(config, decoder, encoder);
     }
 
-    public TransformProcessor(TransformConfig config) throws JSQLParserException {
-        this.init(config);
-    }
-
-    private void init(TransformConfig config) throws JSQLParserException {
+    private TransformProcessor(
+            TransformConfig config,
+            SourceDecoder<I> decoder,
+            SinkEncoder<O> encoder)
+            throws JSQLParserException {
         this.config = config;
-        if (!StringUtils.isBlank(config.getSourceInfo().getCharset())) {
-            this.srcCharset = Charset.forName(config.getSourceInfo().getCharset());
-        }
-        if (!StringUtils.isBlank(config.getSinkInfo().getCharset())) {
-            this.sinkCharset = Charset.forName(config.getSinkInfo().getCharset());
-        }
-        this.initDecoder(config);
-        this.initEncoder(config);
-        this.initTransformSql();
+        this.decoder = decoder;
+        this.encoder = encoder;
+        this.init();
     }
 
-    private void initDecoder(TransformConfig config) {
-        SourceInfo sourceInfo = config.getSourceInfo();
-        if (sourceInfo instanceof CsvSourceInfo) {
-            this.decoder = new CsvSourceDecoder((CsvSourceInfo) sourceInfo);
-        } else if (sourceInfo instanceof KvSourceInfo) {
-            this.decoder = new KvSourceDecoder((KvSourceInfo) sourceInfo);
-        } else if (sourceInfo instanceof JsonSourceInfo) {
-            this.decoder = new JsonSourceDecoder((JsonSourceInfo) sourceInfo);
-        } else if (sourceInfo instanceof PbSourceInfo) {
-            this.decoder = new PbSourceDecoder((PbSourceInfo) sourceInfo);
+    private void init() throws JSQLParserException {
+        if (!config.isStrictOrder() && encoder != null && encoder.getFields() != null) {
+            List<FieldInfo> fields = encoder.getFields();
+            this.sinkFieldList = new ArrayList<>(fields.size());
+            fields.forEach(v -> this.sinkFieldList.add(v.getName()));
+        }
+
+        if (StringUtils.isNotEmpty(config.getTransformSql())) {
+            this.initTransformSql(config.getTransformSql());
+        } else {
+            this.initTransformSql(DUMMY_SELECT);
         }
     }
 
-    private void initEncoder(TransformConfig config) {
-        SinkInfo sinkInfo = config.getSinkInfo();
-        if (sinkInfo instanceof CsvSinkInfo) {
-            this.encoder = new CsvSinkEncoder((CsvSinkInfo) sinkInfo);
-        } else if (sinkInfo instanceof KvSinkInfo) {
-            this.encoder = new KvSinkEncoder((KvSinkInfo) sinkInfo);
-        }
-    }
-
-    private void initTransformSql() throws JSQLParserException {
+    private void initTransformSql(String sql) throws JSQLParserException {
         CCJSqlParserManager parserManager = new CCJSqlParserManager();
-        Select select = (Select) parserManager.parse(new StringReader(config.getTransformSql()));
+        Select select = (Select) parserManager.parse(new StringReader(sql));
         this.transformSelect = (PlainSelect) select.getSelectBody();
         this.where = OperatorTools.buildOperator(this.transformSelect.getWhere());
         List<SelectItem> items = this.transformSelect.getSelectItems();
-        this.selectItemMap = new HashMap<>(items.size());
+        this.selectItems = new ArrayList<>(items.size());
         List<FieldInfo> fields = this.encoder.getFields();
         for (int i = 0; i < items.size(); i++) {
             SelectItem item = items.get(i);
             String fieldName = null;
-            if (i < fields.size()) {
+            if (config.isStrictOrder() && i < fields.size()) {
                 fieldName = fields.get(i).getName();
             }
             if (item instanceof SelectExpressionItem) {
@@ -150,40 +117,130 @@ public class TransformProcessor {
                     } else {
                         fieldName = exprItem.getAlias().getName();
                     }
+                    if (!this.checkSelectField(fieldName)) {
+                        throw new JSQLParserException(
+                                String.format("Field name:%s can not be found in sink field list.", fieldName));
+                    }
                 }
-                this.selectItemMap.put(fieldName,
-                        OperatorTools.buildParser(exprItem.getExpression()));
+                this.selectItems
+                        .add(new ValueParserNode(fieldName, OperatorTools.buildParser(exprItem.getExpression())));
+            } else if (item instanceof AllColumns) {
+                for (FieldInfo fieldInfo : decoder.getFields()) {
+                    String name = fieldInfo.getName();
+                    this.selectItems.add(new ValueParserNode(name, new ColumnParser(new Column(name))));
+                }
             }
         }
     }
 
-    public List<String> transform(byte[] srcBytes, Map<String, Object> extParams) {
-        SourceData sourceData = this.decoder.decode(srcBytes, extParams);
+    public boolean checkSelectField(String fieldName) {
+        if (config.isIgnoreConfigError()) {
+            return true;
+        }
+        return this.sinkFieldList != null && this.sinkFieldList.contains(fieldName);
+    }
+
+    public List<O> transform(I input) {
+        return this.transform(input, EMPTY_EXT_PARAMS);
+    }
+
+    public List<O> transform(I input, Map<String, Object> extParams) {
+        Context context = new Context(config.getConfiguration(), extParams);
+
+        // decode
+        SourceData sourceData = this.decoder.decode(input, context);
         if (sourceData == null) {
             return null;
         }
-        List<String> sinkDatas = new ArrayList<>(sourceData.getRowCount());
+
+        List<O> sinkDatas = new ArrayList<>(sourceData.getRowCount());
         for (int i = 0; i < sourceData.getRowCount(); i++) {
-            if (this.where != null && !this.where.check(sourceData, i)) {
+
+            // where check
+            if (this.where != null && !this.where.check(sourceData, i, context)) {
                 continue;
             }
-            SinkData sinkData = new DefaultSinkData();
-            for (Entry<String, ValueParser> entry : this.selectItemMap.entrySet()) {
-                String fieldName = entry.getKey();
+
+            // parse value
+            DefaultSinkData sinkData = new DefaultSinkData();
+            for (ValueParserNode node : this.selectItems) {
+                String fieldName = node.getFieldName();
+                ValueParser parser = node.getParser();
+                if (parser == null || StringUtils.equals(fieldName, SinkEncoder.ALL_SOURCE_FIELD_SIGN)) {
+                    if (input instanceof String) {
+                        sinkData.addField(fieldName, (String) input);
+                    } else {
+                        sinkData.addField(fieldName, "");
+                    }
+                    continue;
+                }
                 try {
-                    Object fieldValue = entry.getValue().parse(sourceData, i);
-                    sinkData.addField(fieldName, String.valueOf(fieldValue));
+                    Object fieldValue = parser.parse(sourceData, i, context);
+                    if (fieldValue == null) {
+                        sinkData.addField(fieldName, "");
+                    } else {
+                        sinkData.addField(fieldName, fieldValue.toString());
+                        context.put(fieldName, fieldValue);
+                    }
                 } catch (Throwable t) {
-                    LOG.error(t.getMessage(), t);
                     sinkData.addField(fieldName, "");
                 }
             }
-            sinkDatas.add(this.encoder.encode(sinkData));
+
+            if (this.sinkFieldList != null) {
+                sinkData.setKeyList(this.sinkFieldList);
+            }
+            // encode
+            sinkDatas.add(this.encoder.encode(sinkData, context));
         }
         return sinkDatas;
     }
 
-    public List<String> transform(String srcString, Map<String, Object> extParams) {
-        return this.transform(srcString.getBytes(this.srcCharset), extParams);
+    public List<O> transformForBytes(byte[] input, Map<String, Object> extParams) {
+        Context context = new Context(config.getConfiguration(), extParams);
+
+        // decode
+        SourceData sourceData = this.decoder.decode(input, context);
+        if (sourceData == null) {
+            return null;
+        }
+
+        List<O> sinkDatas = new ArrayList<>(sourceData.getRowCount());
+        for (int i = 0; i < sourceData.getRowCount(); i++) {
+
+            // where check
+            if (this.where != null && !this.where.check(sourceData, i, context)) {
+                continue;
+            }
+
+            // parse value
+            DefaultSinkData sinkData = new DefaultSinkData();
+            for (ValueParserNode node : this.selectItems) {
+                String fieldName = node.getFieldName();
+                ValueParser parser = node.getParser();
+                if (parser == null || StringUtils.equals(fieldName, SinkEncoder.ALL_SOURCE_FIELD_SIGN)) {
+                    sinkData.addField(fieldName, "");
+                    continue;
+                }
+                try {
+                    Object fieldValue = parser.parse(sourceData, i, context);
+                    if (fieldValue == null) {
+                        sinkData.addField(fieldName, "");
+                    } else {
+                        sinkData.addField(fieldName, fieldValue.toString());
+                    }
+                } catch (Throwable t) {
+                    sinkData.addField(fieldName, "");
+                }
+            }
+
+            if (this.sinkFieldList != null) {
+                sinkData.setKeyList(this.sinkFieldList);
+            }
+            // encode
+            sinkDatas.add(this.encoder.encode(sinkData, context));
+        }
+        return sinkDatas;
     }
+
 }

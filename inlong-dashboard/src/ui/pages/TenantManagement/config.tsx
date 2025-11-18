@@ -29,7 +29,7 @@ export const getFilterFormContent = () => [
   },
 ];
 
-export const getColumns = ({ onEdit }) => {
+export const getColumns = ({ onEdit, onDelete }) => {
   return [
     {
       title: i18n.t('pages.Tenant.config.Name'),
@@ -50,23 +50,34 @@ export const getColumns = ({ onEdit }) => {
     {
       title: i18n.t('pages.Tenant.config.Creator'),
       dataIndex: 'creator',
+      render: (text, record) => (
+        <>
+          <div>{text}</div>
+          <div>{record.createTime && timestampFormat(record.createTime)}</div>
+        </>
+      ),
     },
     {
       title: i18n.t('basic.Modifier'),
       dataIndex: 'modifier',
-    },
-    {
-      title: i18n.t('pages.Tenant.config.CreateTime'),
-      dataIndex: 'createTime',
-      render: text => text && timestampFormat(text),
+      render: (text, record) => (
+        <>
+          <div>{text}</div>
+          <div>{record.modifyTime && timestampFormat(record.modifyTime)}</div>
+        </>
+      ),
     },
     {
       title: i18n.t('basic.Operating'),
       dataIndex: 'action',
+      width: 150,
       render: (text, record) => (
         <>
           <Button type="link" onClick={() => onEdit(record)}>
             {i18n.t('basic.Edit')}
+          </Button>
+          <Button type="link" onClick={() => onDelete(record)}>
+            {i18n.t('basic.Delete')}
           </Button>
         </>
       ),

@@ -92,14 +92,17 @@ public class FileSourceDTO {
     @ApiModelProperty("Whether retry")
     private Boolean retry = false;
 
-    @ApiModelProperty("Start time")
-    private Long startTime = 0L;
+    @ApiModelProperty(value = "Data start time")
+    private String dataTimeFrom;
 
-    @ApiModelProperty("End time")
-    private Long endTime = 0L;
+    @ApiModelProperty(value = "Data end time")
+    private String dataTimeTo;
 
     @ApiModelProperty(value = "Audit version")
     private String auditVersion;
+
+    @ApiModelProperty("filterStreams")
+    private List<String> filterStreams;
 
     public static FileSourceDTO getFromRequest(@NotNull FileSourceRequest fileSourceRequest, String extParams) {
         FileSourceDTO dto = StringUtils.isNotBlank(extParams)

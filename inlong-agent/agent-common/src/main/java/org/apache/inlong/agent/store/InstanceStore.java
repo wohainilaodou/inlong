@@ -20,6 +20,7 @@ package org.apache.inlong.agent.store;
 import org.apache.inlong.agent.conf.InstanceProfile;
 import org.apache.inlong.agent.constant.CommonConstants;
 import org.apache.inlong.agent.constant.TaskConstants;
+import org.apache.inlong.common.enums.InstanceStateEnum;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,13 +55,24 @@ public class InstanceStore {
         return instanceList;
     }
 
+    public int getRunningInstanceCount() {
+        List<KeyValueEntity> result = this.store.findAll(store.getUniqueKey());
+        int count = 0;
+        for (KeyValueEntity entity : result) {
+            if (entity.getAsInstanceProfile().getState() == InstanceStateEnum.DEFAULT) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     /**
      * get instance list from instance store.
      *
      * @return list of task
      */
     public List<InstanceProfile> getInstances(String taskId) {
-        List<KeyValueEntity> result = this.store.findAll(getKeyByTaskId(taskId));
+        List<KeyValueEntity> result = this.store.findAll(getKeyByTaskId(taskId) + store.getSplitter());
         List<InstanceProfile> instanceList = new ArrayList<>();
         for (KeyValueEntity entity : result) {
             instanceList.add(entity.getAsInstanceProfile());

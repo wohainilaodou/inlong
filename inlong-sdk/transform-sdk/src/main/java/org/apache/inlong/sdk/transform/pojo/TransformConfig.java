@@ -19,61 +19,53 @@ package org.apache.inlong.sdk.transform.pojo;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
+
+import java.util.Map;
 
 /**
  * TransformConfig
  */
 public class TransformConfig {
 
-    @JsonProperty("sourceInfo")
-    private SourceInfo sourceInfo;
-    @JsonProperty("sinkInfo")
-    private SinkInfo sinkInfo;
     @JsonProperty("transformSql")
     private String transformSql;
 
+    @JsonProperty("configuration")
+    private Map<String, Object> configuration;
+
+    @JsonProperty("strictOrder")
+    private boolean strictOrder = true;
+
+    @JsonProperty("ignoreConfigError")
+    private boolean ignoreConfigError = true;
+
     @JsonCreator
-    public TransformConfig(
-            @JsonProperty("sourceInfo") SourceInfo sourceInfo,
-            @JsonProperty("sinkInfo") SinkInfo sinkInfo,
-            @JsonProperty("transformSql") String transformSql) {
-        this.sourceInfo = sourceInfo;
-        this.sinkInfo = sinkInfo;
-        this.transformSql = transformSql;
+    public TransformConfig(@JsonProperty("transformSql") String transformSql) {
+        this(transformSql, ImmutableMap.of(), true, true);
     }
 
-    /**
-     * get sourceInfo
-     * @return the sourceInfo
-     */
-    @JsonProperty("sourceInfo")
-    public SourceInfo getSourceInfo() {
-        return sourceInfo;
+    @JsonCreator
+    public TransformConfig(@JsonProperty("transformSql") String transformSql,
+            @JsonProperty("configuration") Map<String, Object> configuration) {
+        this(transformSql, configuration, true, true);
+    }
+    @JsonCreator
+    public TransformConfig(@JsonProperty("transformSql") String transformSql,
+            @JsonProperty("strictOrder") boolean strictOrder) {
+        this(transformSql, ImmutableMap.of(), strictOrder, true);
     }
 
-    /**
-     * set sourceInfo
-     * @param sourceInfo the sourceInfo to set
-     */
-    public void setSourceInfo(SourceInfo sourceInfo) {
-        this.sourceInfo = sourceInfo;
-    }
-
-    /**
-     * get sinkInfo
-     * @return the sinkInfo
-     */
-    @JsonProperty("sinkInfo")
-    public SinkInfo getSinkInfo() {
-        return sinkInfo;
-    }
-
-    /**
-     * set sinkInfo
-     * @param sinkInfo the sinkInfo to set
-     */
-    public void setSinkInfo(SinkInfo sinkInfo) {
-        this.sinkInfo = sinkInfo;
+    @JsonCreator
+    public TransformConfig(@JsonProperty("transformSql") String transformSql,
+            @JsonProperty("configuration") Map<String, Object> configuration,
+            @JsonProperty("strictOrder") boolean strictOrder,
+            @JsonProperty("ignoreConfigError") boolean ignoreConfigError) {
+        this.transformSql = Preconditions.checkNotNull(transformSql, "transform sql should not be null");
+        this.configuration = configuration;
+        this.strictOrder = strictOrder;
+        this.ignoreConfigError = ignoreConfigError;
     }
 
     /**
@@ -83,6 +75,21 @@ public class TransformConfig {
     @JsonProperty("transformSql")
     public String getTransformSql() {
         return transformSql;
+    }
+
+    @JsonProperty("configuration")
+    public Map<String, Object> getConfiguration() {
+        return configuration;
+    }
+
+    @JsonProperty("strictOrder")
+    public boolean isStrictOrder() {
+        return strictOrder;
+    }
+
+    @JsonProperty("ignoreConfigError")
+    public boolean isIgnoreConfigError() {
+        return ignoreConfigError;
     }
 
     /**

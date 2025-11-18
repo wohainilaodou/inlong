@@ -68,6 +68,9 @@ public abstract class StreamSink extends StreamNode {
     @ApiModelProperty("Sink name, unique in one stream.")
     private String sinkName;
 
+    @ApiModelProperty("Transform sql")
+    private String transformSql;
+
     @ApiModelProperty("Sink description")
     private String description;
 
@@ -86,6 +89,9 @@ public abstract class StreamSink extends StreamNode {
     @Builder.Default
     @ApiModelProperty(value = "Whether to enable create sink resource? 0: disable, 1: enable. Default is 1", notes = "Such as enable or disable to create Hive table")
     private Integer enableCreateResource = 1;
+
+    @ApiModelProperty("Enable data archiving")
+    private Boolean enableDataArchiving;
 
     @ApiModelProperty("Backend operation log")
     private String operateLog;

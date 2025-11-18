@@ -23,6 +23,7 @@ import i18n from '@/i18n';
 import { statusList, genStatusTag } from './status';
 import { timestampFormat } from '@/core/utils';
 import StatusTag from '@/ui/components/StatusTag';
+import { Button } from 'antd';
 
 export const getFilterFormContent = defaultValues => [
   {
@@ -55,7 +56,7 @@ export const getColumns = activedName => [
     width: 90,
     render: (text, record) => (
       <Link
-        to={`/process/${activedName}/${text}?inlongGroupMode=${record.showInList?.inlongGroupMode}`}
+        to={`/process/${activedName}/${text}?inlongGroupMode=${record.showInList?.[0]?.inlongGroupMode}`}
       >
         {text}
       </Link>
@@ -70,13 +71,13 @@ export const getColumns = activedName => [
     title: i18n.t('pages.Approvals.GroupId'),
     dataIndex: 'inlongGroupId',
     width: 200,
-    render: (text, record) => record.showInList?.inlongGroupId,
+    render: (text, record) => record.showInList?.[0]?.inlongGroupId,
   },
   {
     title: i18n.t('pages.Approvals.ConsumeName'),
     dataIndex: 'consumerGroup',
     width: 200,
-    render: (text, record) => record.showInList?.consumerGroup,
+    render: (text, record) => record.showInList?.[0]?.consumerGroup,
   },
   {
     title: i18n.t('pages.Approvals.GroupMode'),
@@ -92,7 +93,7 @@ export const getColumns = activedName => [
           />
         );
       }
-      return record.showInList?.inlongGroupMode === 1 ? (
+      return record.showInList?.[0]?.inlongGroupMode === 1 ? (
         <StatusTag
           type={'success'}
           icon={<span />}
@@ -130,11 +131,32 @@ export const getColumns = activedName => [
     dataIndex: 'action',
     width: 100,
     render: (text, record) => (
-      <Link
-        to={`/process/${activedName}/${record.id}?inlongGroupMode=${record.showInList?.inlongGroupMode}`}
-      >
-        {i18n.t('basic.Detail')}
-      </Link>
+      <>
+        <Link
+          to={`/process/${activedName}/${record.id}?inlongGroupMode=${record.showInList?.[0]?.inlongGroupMode}`}
+        >
+          {i18n.t('basic.Detail')}
+        </Link>
+        {record.currentTasks.length > 0 && (
+          <Button
+            type="link"
+            onClick={() => {
+              const baseUrl = window.location.href.split('applies')[0];
+              const fullUrl =
+                baseUrl +
+                'approvals/' +
+                record?.id +
+                '/?taskId=' +
+                record?.currentTasks[0].id +
+                '&inlongGroupMode=' +
+                record?.showInList?.[0]?.inlongGroupMode;
+              setTimeout(() => navigator.clipboard.writeText(fullUrl), 0);
+            }}
+          >
+            {i18n.t('pages.Approvals.Copy')}
+          </Button>
+        )}
+      </>
     ),
   },
 ];

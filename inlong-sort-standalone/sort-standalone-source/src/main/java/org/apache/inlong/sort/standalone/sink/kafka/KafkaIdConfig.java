@@ -19,33 +19,40 @@ package org.apache.inlong.sort.standalone.sink.kafka;
 
 import org.apache.inlong.common.enums.DataTypeEnum;
 import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.CsvConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.DataTypeConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.KvConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.PbConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.sink.KafkaSinkConfig;
+import org.apache.inlong.sort.standalone.config.pojo.IdConfig;
 import org.apache.inlong.sort.standalone.config.pojo.InlongId;
 import org.apache.inlong.sort.standalone.utils.Constants;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.util.Map;
 
+@EqualsAndHashCode(callSuper = true)
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class KafkaIdConfig {
+@SuperBuilder
+public class KafkaIdConfig extends IdConfig {
 
     public static final String KEY_DATA_TYPE = "dataType";
     public static final String KEY_SEPARATOR = "separator";
     public static final String DEFAULT_SEPARATOR = "|";
 
-    private String inlongGroupId;
-    private String inlongStreamId;
     private String uid;
-    private String separator = "|";
+    private String separator;
     private String topic;
-    private DataTypeEnum dataType = DataTypeEnum.TEXT;
+    private DataTypeEnum dataType;
+    private DataFlowConfig dataFlowConfig;
+    private String dataFlowId;
 
     public KafkaIdConfig(Map<String, String> idParam) {
         this.inlongGroupId = idParam.get(Constants.INLONG_GROUP_ID);
@@ -55,17 +62,33 @@ public class KafkaIdConfig {
         this.topic = idParam.getOrDefault(Constants.TOPIC, uid);
         this.dataType = DataTypeEnum
                 .convert(idParam.getOrDefault(KafkaIdConfig.KEY_DATA_TYPE, DataTypeEnum.TEXT.getType()));
+        this.dataFlowId = this.uid;
     }
 
     public static KafkaIdConfig create(DataFlowConfig dataFlowConfig) {
         KafkaSinkConfig sinkConfig = (KafkaSinkConfig) dataFlowConfig.getSinkConfig();
+        DataTypeConfig dataTypeConfig = dataFlowConfig.getSourceConfig().getDataTypeConfig();
+        String separator = DEFAULT_SEPARATOR;
+        DataTypeEnum dataType = DataTypeEnum.TEXT;
+        if (dataTypeConfig instanceof CsvConfig) {
+            separator = String.valueOf(((CsvConfig) dataTypeConfig).getDelimiter());
+            dataType = DataTypeEnum.TEXT;
+        } else if (dataTypeConfig instanceof KvConfig) {
+            separator = String.valueOf(((KvConfig) dataTypeConfig).getEntrySplitter());
+            dataType = DataTypeEnum.TEXT;
+        } else if (dataTypeConfig instanceof PbConfig) {
+            dataType = DataTypeEnum.PB;
+        }
 
         return KafkaIdConfig.builder()
                 .inlongGroupId(dataFlowConfig.getInlongGroupId())
                 .inlongStreamId(dataFlowConfig.getInlongStreamId())
                 .uid(InlongId.generateUid(dataFlowConfig.getInlongGroupId(), dataFlowConfig.getInlongStreamId()))
                 .topic(sinkConfig.getTopicName())
-                .dataType(DataTypeEnum.TEXT)
+                .dataType(dataType)
+                .separator(separator)
+                .dataFlowConfig(dataFlowConfig)
+                .dataFlowId(dataFlowConfig.getDataflowId())
                 .build();
     }
 

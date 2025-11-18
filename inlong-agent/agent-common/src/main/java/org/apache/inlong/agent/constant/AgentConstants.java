@@ -31,9 +31,9 @@ public class AgentConstants {
     public static final String DEFAULT_AGENT_HOME = System.getProperty("agent.home");
     public static final String AGENT_ROCKS_DB_PATH = "agent.rocks.db.path";
     public static final String DEFAULT_AGENT_ROCKS_DB_PATH = ".rocksdb";
-    public static final String AGENT_LOCAL_DB_PATH_TASK = ".localdb/task";
-    public static final String AGENT_LOCAL_DB_PATH_INSTANCE = ".localdb/instance";
-    public static final String AGENT_LOCAL_DB_PATH_OFFSET = ".localdb/offset";
+    public static final String AGENT_STORE_PATH_TASK = ".localdb/task";
+    public static final String AGENT_STORE_PATH_INSTANCE = ".localdb/instance";
+    public static final String AGENT_STORE_PATH_OFFSET = ".localdb/offset";
     public static final String AGENT_UNIQ_ID = "agent.uniq.id";
     // default is empty.
     public static final String AGENT_FETCHER_CLASSNAME = "agent.fetcher.classname";
@@ -46,6 +46,9 @@ public class AgentConstants {
     public static final String AGENT_LOCAL_IP = "agent.local.ip";
     public static final String DEFAULT_LOCAL_IP = "127.0.0.1";
     public static final String DEFAULT_LOCAL_HOST = "localhost";
+    public static final String AGENT_STORE_CLASSNAME = "agent.store.classname";
+    public static final String DEFAULT_AGENT_STORE_CLASSNAME = "org.apache.inlong.agent.plugin.store.RocksDBStoreImpl";
+
     // default use local ip as uniq id for agent.
     public static final String DEFAULT_AGENT_UNIQ_ID = AgentUtils.getLocalIp();
     public static final String CUSTOM_FIXED_IP = "agent.custom.fixed.ip";
@@ -53,6 +56,7 @@ public class AgentConstants {
     public static final String AGENT_CLUSTER_NAME = "agent.cluster.name";
     public static final String AGENT_CLUSTER_TAG = "agent.cluster.tag";
     public static final String AGENT_CLUSTER_IN_CHARGES = "agent.cluster.inCharges";
+    public static final String AGENT_INSTALL_PLATFORM = "agent.install.platform";
 
     public static final String AGENT_LOCAL_UUID = "agent.local.uuid";
     public static final String AGENT_LOCAL_UUID_OPEN = "agent.local.uuid.open";
@@ -64,15 +68,22 @@ public class AgentConstants {
 
     public static final String AUDIT_ENABLE = "audit.enable";
     public static final boolean DEFAULT_AUDIT_ENABLE = true;
-
-    public static final String AUDIT_KEY_PROXYS = "audit.proxys";
-    public static final String DEFAULT_AUDIT_PROXYS = "";
+    public static final String AUDIT_PROXY_ADDRESS = "audit.proxys";
 
     public static final String AGENT_HISTORY_PATH = "agent.history.path";
     public static final String DEFAULT_AGENT_HISTORY_PATH = ".history";
 
     public static final String AGENT_ENABLE_OOM_EXIT = "agent.enable.oom.exit";
     public static final boolean DEFAULT_ENABLE_OOM_EXIT = false;
+
+    public static final String AGENT_SCAN_RANGE = "agent.scan.range";
+    public static final String AGENT_OFFSET_TTL = "agent.offset.ttl";
+    public static final String DEFAULT_AGENT_SCAN_RANGE = "-2";
+    public static final String DEFAULT_AGENT_SCAN_RANGE_DAY = "-2";
+    public static final String DEFAULT_AGENT_SCAN_RANGE_HOUR = "-2";
+    public static final String DEFAULT_AGENT_SCAN_RANGE_MINUTE = "-120";
+    public static final String AGENT_INSTANCE_LIMIT = "agent.instance.limit";
+    public static final int DEFAULT_AGENT_INSTANCE_LIMIT = 100;
 
     // pulsar sink config
     public static final String PULSAR_CLIENT_IO_TREHAD_NUM = "agent.sink.pulsar.client.io.thread.num";

@@ -18,11 +18,11 @@
 package org.apache.inlong.sort.formats.inlongmsgbinlog;
 
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.RowFormatInfo;
-import org.apache.inlong.sort.formats.inlongmsg.AbstractInLongMsgFormatDeserializer;
 import org.apache.inlong.sort.formats.inlongmsg.FailureHandler;
 import org.apache.inlong.sort.formats.inlongmsg.InLongMsgBody;
 import org.apache.inlong.sort.formats.inlongmsg.InLongMsgHead;
-import org.apache.inlong.sort.formats.inlongmsg.InLongMsgUtils;
+import org.apache.inlong.sort.formats.inlongmsg.row.AbstractInLongMsgFormatDeserializer;
+import org.apache.inlong.sort.formats.inlongmsg.row.InLongMsgUtils;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.types.Row;
@@ -30,7 +30,6 @@ import org.apache.flink.types.Row;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -152,7 +151,7 @@ public final class InLongMsgBinlogFormatDeserializer extends AbstractInLongMsgFo
     }
 
     @Override
-    protected List<Row> convertRows(InLongMsgHead head, InLongMsgBody body) throws IOException {
+    protected List<Row> convertRows(InLongMsgHead head, InLongMsgBody body) throws Exception {
         return InLongMsgBinlogUtils.getRows(
                 rowFormatInfo,
                 timeFieldName,

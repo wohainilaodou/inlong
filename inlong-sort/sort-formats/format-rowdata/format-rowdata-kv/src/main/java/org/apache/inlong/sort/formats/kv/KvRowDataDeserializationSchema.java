@@ -21,7 +21,9 @@ import org.apache.inlong.common.pojo.sort.dataflow.field.format.FormatInfo;
 import org.apache.inlong.common.pojo.sort.dataflow.field.format.RowFormatInfo;
 import org.apache.inlong.sort.formats.base.DefaultDeserializationSchema;
 import org.apache.inlong.sort.formats.base.FieldToRowDataConverters;
+import org.apache.inlong.sort.formats.base.FormatMsg;
 import org.apache.inlong.sort.formats.base.TableFormatForRowDataUtils;
+import org.apache.inlong.sort.formats.inlongmsg.FailureHandler;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.table.data.GenericRowData;
@@ -33,6 +35,7 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -44,6 +47,7 @@ import static org.apache.inlong.sort.formats.base.TableFormatConstants.DEFAULT_K
 import static org.apache.inlong.sort.formats.base.TableFormatConstants.DEFAULT_NULL_LITERAL;
 import static org.apache.inlong.sort.formats.base.TableFormatConstants.DEFAULT_QUOTE_CHARACTER;
 import static org.apache.inlong.sort.formats.base.TableFormatUtils.deserializeBasicField;
+import static org.apache.inlong.sort.formats.base.TableFormatUtils.getFormatValueLength;
 import static org.apache.inlong.sort.formats.util.StringUtils.splitKv;
 
 /**
@@ -137,6 +141,37 @@ public class KvRowDataDeserializationSchema extends DefaultDeserializationSchema
         this.escapeChar = escapeChar;
         this.quoteChar = quoteChar;
         this.nullLiteral = nullLiteral;
+        String[] fieldNames = rowFormatInfo.getFieldNames();
+        this.fieldNameSize = (fieldNames == null ? 0 : fieldNames.length);
+
+        converters = Arrays.stream(rowFormatInfo.getFieldFormatInfos())
+                .map(formatInfo -> FieldToRowDataConverters.createConverter(
+                        TableFormatForRowDataUtils.deriveLogicalType(formatInfo)))
+                .toArray(FieldToRowDataConverters.FieldToRowDataConverter[]::new);
+    }
+
+    public KvRowDataDeserializationSchema(
+            @Nonnull RowFormatInfo rowFormatInfo,
+            @Nonnull TypeInformation<RowData> producedTypeInfo,
+            @Nonnull String charset,
+            @Nonnull Character entryDelimiter,
+            @Nonnull Character kvDelimiter,
+            @Nullable Character escapeChar,
+            @Nullable Character quoteChar,
+            @Nullable String nullLiteral,
+            @Nullable FailureHandler failureHandler) {
+        super(failureHandler);
+        this.rowFormatInfo = rowFormatInfo;
+        this.producedTypeInfo = producedTypeInfo;
+        this.charset = charset;
+        this.entryDelimiter = entryDelimiter;
+        this.kvDelimiter = kvDelimiter;
+        this.escapeChar = escapeChar;
+        this.quoteChar = quoteChar;
+        this.nullLiteral = nullLiteral;
+
+        String[] fieldNames = rowFormatInfo.getFieldNames();
+        this.fieldNameSize = (fieldNames == null ? 0 : fieldNames.length);
 
         converters = Arrays.stream(rowFormatInfo.getFieldFormatInfos())
                 .map(formatInfo -> FieldToRowDataConverters.createConverter(
@@ -149,8 +184,9 @@ public class KvRowDataDeserializationSchema extends DefaultDeserializationSchema
         String text = new String(bytes, Charset.forName(charset));
         GenericRowData rowData = null;
         try {
-            Map<String, String> fieldTexts =
-                    splitKv(text, entryDelimiter, kvDelimiter, escapeChar, quoteChar);
+            List<Map<String, String>> fieldTexts =
+                    splitKv(text, entryDelimiter, kvDelimiter, escapeChar, quoteChar, null,
+                            true);
 
             String[] fieldNames = rowFormatInfo.getFieldNames();
             FormatInfo[] fieldFormatInfos = rowFormatInfo.getFieldFormatInfos();
@@ -160,16 +196,52 @@ public class KvRowDataDeserializationSchema extends DefaultDeserializationSchema
                 String fieldName = fieldNames[i];
                 FormatInfo fieldFormatInfo = fieldFormatInfos[i];
 
-                String fieldText = fieldTexts.get(fieldName);
+                String fieldText = fieldTexts.get(0).get(fieldName);
 
                 Object field = deserializeBasicField(
                         fieldName,
                         fieldFormatInfo,
                         fieldText,
-                        nullLiteral);
+                        nullLiteral, failureHandler);
                 rowData.setField(i, converters[i].convert(field));
             }
             return rowData;
+        } catch (Throwable t) {
+            failureHandler.onParsingMsgFailure(text, new RuntimeException(
+                    String.format("Could not properly deserialize kv. Text=[{}].", text), t));
+        }
+        return null;
+    }
+
+    @Override
+    public FormatMsg deserializeFormatMsg(byte[] bytes) throws Exception {
+        String text = new String(bytes, Charset.forName(charset));
+        GenericRowData rowData = null;
+        long rowDataLength = 0L;
+        try {
+            List<Map<String, String>> fieldTexts =
+                    splitKv(text, entryDelimiter, kvDelimiter, escapeChar, quoteChar, null,
+                            true);
+
+            String[] fieldNames = rowFormatInfo.getFieldNames();
+            FormatInfo[] fieldFormatInfos = rowFormatInfo.getFieldFormatInfos();
+
+            rowData = new GenericRowData(fieldFormatInfos.length);
+            for (int i = 0; i < fieldFormatInfos.length; i++) {
+                String fieldName = fieldNames[i];
+                FormatInfo fieldFormatInfo = fieldFormatInfos[i];
+
+                String fieldText = fieldTexts.get(0).get(fieldName);
+
+                Object field = deserializeBasicField(
+                        fieldName,
+                        fieldFormatInfo,
+                        fieldText,
+                        nullLiteral, failureHandler);
+                rowData.setField(i, converters[i].convert(field));
+                rowDataLength += getFormatValueLength(fieldFormatInfo, fieldText);
+            }
+            return new FormatMsg(rowData, rowDataLength);
         } catch (Throwable t) {
             failureHandler.onParsingMsgFailure(text, new RuntimeException(
                     String.format("Could not properly deserialize kv. Text=[{}].", text), t));
@@ -199,6 +271,17 @@ public class KvRowDataDeserializationSchema extends DefaultDeserializationSchema
         }
 
         public KvRowDataDeserializationSchema build() {
+            if (failureHandler != null) {
+                return new KvRowDataDeserializationSchema(
+                        rowFormatInfo,
+                        producedTypeInfo,
+                        charset,
+                        entryDelimiter,
+                        kvDelimiter,
+                        escapeChar,
+                        quoteChar,
+                        nullLiteral, failureHandler);
+            }
             return new KvRowDataDeserializationSchema(
                     rowFormatInfo,
                     producedTypeInfo,
@@ -229,7 +312,8 @@ public class KvRowDataDeserializationSchema extends DefaultDeserializationSchema
                 kvDelimiter.equals(that.kvDelimiter) &&
                 Objects.equals(escapeChar, that.escapeChar) &&
                 Objects.equals(quoteChar, that.quoteChar) &&
-                Objects.equals(nullLiteral, that.nullLiteral);
+                Objects.equals(nullLiteral, that.nullLiteral) &&
+                Objects.equals(failureHandler, that.failureHandler);
     }
 
     @Override
@@ -242,6 +326,6 @@ public class KvRowDataDeserializationSchema extends DefaultDeserializationSchema
                 kvDelimiter,
                 escapeChar,
                 quoteChar,
-                nullLiteral);
+                nullLiteral, failureHandler);
     }
 }

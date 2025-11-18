@@ -18,7 +18,7 @@
 package org.apache.inlong.audit.node;
 
 import org.apache.inlong.audit.file.ConfigManager;
-import org.apache.inlong.audit.heartbeat.Heartbeat;
+import org.apache.inlong.audit.metric.MetricsManager;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
@@ -60,7 +60,6 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * 
  * Application
  */
 public class Application {
@@ -76,8 +75,6 @@ public class Application {
     private MaterializedConfiguration materializedConfiguration;
     private MonitorService monitorServer;
     private final ReentrantLock lifecycleLock = new ReentrantLock();
-
-    private static final Heartbeat heartbeat = new Heartbeat();
 
     public Application() {
         this(new ArrayList<LifecycleAware>(0));
@@ -262,6 +259,7 @@ public class Application {
 
     /**
      * main
+     *
      * @param args
      */
     public static void main(String[] args) {
@@ -338,8 +336,6 @@ public class Application {
                 application.handleConfigurationEvent(configurationProvider.getConfiguration());
             }
 
-            heartbeat.Start();
-
             // start application
             application.start();
 
@@ -349,8 +345,11 @@ public class Application {
                 @Override
                 public void run() {
                     appReference.stop();
+                    MetricsManager.getInstance().shutdown();
                 }
             });
+
+            MetricsManager.getInstance().init();
 
         } catch (Exception e) {
             logger.error("A fatal error occurred while running. Exception follows.", e);

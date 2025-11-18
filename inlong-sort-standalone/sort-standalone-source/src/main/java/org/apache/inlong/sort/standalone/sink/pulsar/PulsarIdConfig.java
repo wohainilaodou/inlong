@@ -19,42 +19,84 @@ package org.apache.inlong.sort.standalone.sink.pulsar;
 
 import org.apache.inlong.common.enums.DataTypeEnum;
 import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.CsvConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.DataTypeConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.KvConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.dataType.PbConfig;
 import org.apache.inlong.common.pojo.sort.dataflow.sink.PulsarSinkConfig;
+import org.apache.inlong.sort.standalone.config.pojo.IdConfig;
 import org.apache.inlong.sort.standalone.config.pojo.InlongId;
+import org.apache.inlong.sort.standalone.utils.Constants;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
+import java.util.Map;
+
+@EqualsAndHashCode(callSuper = true)
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PulsarIdConfig {
+@SuperBuilder
+public class PulsarIdConfig extends IdConfig {
 
     public static final String KEY_DATA_TYPE = "dataType";
     public static final String KEY_SEPARATOR = "separator";
     public static final String DEFAULT_SEPARATOR = "|";
+    public static final String PERSISTENT_KEY = "persistent";
 
     private static final String DEFAULT_INLONG_STREAM = "1";
 
-    private String inlongGroupId;
-    private String inlongStreamId;
     private String uid;
-    private String separator = "|";
+    private String separator;
     private String topic;
-    private DataTypeEnum dataType = DataTypeEnum.TEXT;
+    private DataTypeEnum dataType;
+    private DataFlowConfig dataFlowConfig;
+
+    public PulsarIdConfig(Map<String, String> idParam) {
+        this.inlongGroupId = idParam.get(Constants.INLONG_GROUP_ID);
+        this.inlongStreamId = idParam.getOrDefault(Constants.INLONG_STREAM_ID, DEFAULT_INLONG_STREAM);
+        this.uid = InlongId.generateUid(inlongGroupId, inlongStreamId);
+        this.separator = idParam.getOrDefault(PulsarIdConfig.KEY_SEPARATOR, PulsarIdConfig.DEFAULT_SEPARATOR);
+        this.topic = idParam.getOrDefault(Constants.TOPIC, uid);
+        this.dataType = DataTypeEnum
+                .convert(idParam.getOrDefault(PulsarIdConfig.KEY_DATA_TYPE, DataTypeEnum.TEXT.getType()));
+    }
 
     public static PulsarIdConfig create(DataFlowConfig dataFlowConfig) {
         PulsarSinkConfig sinkConfig = (PulsarSinkConfig) dataFlowConfig.getSinkConfig();
+        DataTypeConfig dataTypeConfig = dataFlowConfig.getSourceConfig().getDataTypeConfig();
+        String separator = DEFAULT_SEPARATOR;
+        DataTypeEnum dataType = DataTypeEnum.TEXT;
+        if (dataTypeConfig instanceof CsvConfig) {
+            separator = String.valueOf(((CsvConfig) dataTypeConfig).getDelimiter());
+            dataType = DataTypeEnum.TEXT;
+        } else if (dataTypeConfig instanceof KvConfig) {
+            separator = String.valueOf(((KvConfig) dataTypeConfig).getEntrySplitter());
+            dataType = DataTypeEnum.TEXT;
+        } else if (dataTypeConfig instanceof PbConfig) {
+            dataType = DataTypeEnum.PB;
+        }
 
+        String rawTopic = sinkConfig.getTopic();
+        if (rawTopic != null) {
+            if (!rawTopic.startsWith(PERSISTENT_KEY)) {
+                String pulsarTenant = sinkConfig.getPulsarTenant();
+                String namespace = sinkConfig.getNamespace();
+                rawTopic = String.format("%s://%s/%s/%s", PERSISTENT_KEY, pulsarTenant, namespace, rawTopic);
+            }
+        }
         return PulsarIdConfig.builder()
                 .inlongGroupId(dataFlowConfig.getInlongGroupId())
                 .inlongStreamId(dataFlowConfig.getInlongStreamId())
                 .uid(InlongId.generateUid(dataFlowConfig.getInlongGroupId(), dataFlowConfig.getInlongStreamId()))
-                .topic(sinkConfig.getTopic())
-                .dataType(DataTypeEnum.TEXT)
+                .topic(rawTopic)
+                .dataType(dataType)
+                .separator(separator)
+                .dataFlowConfig(dataFlowConfig)
                 .build();
 
     }

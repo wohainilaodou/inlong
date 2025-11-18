@@ -17,8 +17,9 @@
 
 package org.apache.inlong.sort.pulsar.table;
 
+import org.apache.inlong.sort.pulsar.source.PulsarSource;
+
 import org.apache.flink.api.common.serialization.DeserializationSchema;
-import org.apache.flink.connector.pulsar.source.PulsarSource;
 import org.apache.flink.connector.pulsar.source.enumerator.cursor.StartCursor;
 import org.apache.flink.connector.pulsar.source.enumerator.cursor.StopCursor;
 import org.apache.flink.connector.pulsar.source.reader.deserializer.PulsarDeserializationSchema;
@@ -85,6 +86,8 @@ public class PulsarTableSource implements ScanTableSource, SupportsReadingMetada
 
     private final SubscriptionType subscriptionType;
 
+    private final boolean enableLogReport;
+
     public PulsarTableSource(
             PulsarTableDeserializationSchemaFactory deserializationSchemaFactory,
             DecodingFormat<DeserializationSchema<RowData>> decodingFormatForReadingMetadata,
@@ -93,7 +96,8 @@ public class PulsarTableSource implements ScanTableSource, SupportsReadingMetada
             Properties properties,
             StartCursor startCursor,
             StopCursor stopCursor,
-            SubscriptionType subscriptionType) {
+            SubscriptionType subscriptionType,
+            boolean enableLogReport) {
         // Format attributes
         this.deserializationSchemaFactory = checkNotNull(deserializationSchemaFactory);
         this.decodingFormatForReadingMetadata = checkNotNull(decodingFormatForReadingMetadata);
@@ -104,6 +108,7 @@ public class PulsarTableSource implements ScanTableSource, SupportsReadingMetada
         this.startCursor = checkNotNull(startCursor);
         this.stopCursor = checkNotNull(stopCursor);
         this.subscriptionType = checkNotNull(subscriptionType);
+        this.enableLogReport = enableLogReport;
     }
 
     @Override
@@ -126,6 +131,7 @@ public class PulsarTableSource implements ScanTableSource, SupportsReadingMetada
                         // only support exclusive since shared mode requires pulsar with transaction enabled
                         // and supporting transaction consumes more resources in pulsar broker
                         .setSubscriptionType(SubscriptionType.Exclusive)
+                        .enableLogReport(enableLogReport)
                         .build();
         return SourceProvider.of(source);
     }
@@ -193,7 +199,8 @@ public class PulsarTableSource implements ScanTableSource, SupportsReadingMetada
                 properties,
                 startCursor,
                 stopCursor,
-                subscriptionType);
+                subscriptionType,
+                enableLogReport);
     }
 
     @Override
@@ -214,7 +221,8 @@ public class PulsarTableSource implements ScanTableSource, SupportsReadingMetada
                 && Objects.equals(properties, that.properties)
                 && Objects.equals(startCursor, that.startCursor)
                 && Objects.equals(stopCursor, that.stopCursor)
-                && subscriptionType == that.subscriptionType;
+                && subscriptionType == that.subscriptionType
+                && Objects.equals(enableLogReport, that.enableLogReport);
     }
 
     @Override
@@ -227,6 +235,7 @@ public class PulsarTableSource implements ScanTableSource, SupportsReadingMetada
                 properties,
                 startCursor,
                 stopCursor,
-                subscriptionType);
+                subscriptionType,
+                enableLogReport);
     }
 }

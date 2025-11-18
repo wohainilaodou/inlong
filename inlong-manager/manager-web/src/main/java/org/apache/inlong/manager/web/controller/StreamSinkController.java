@@ -25,12 +25,19 @@ import org.apache.inlong.manager.pojo.common.BatchResult;
 import org.apache.inlong.manager.pojo.common.PageResult;
 import org.apache.inlong.manager.pojo.common.Response;
 import org.apache.inlong.manager.pojo.common.UpdateResult;
+import org.apache.inlong.manager.pojo.sink.DirtyDataDetailResponse;
+import org.apache.inlong.manager.pojo.sink.DirtyDataRequest;
+import org.apache.inlong.manager.pojo.sink.DirtyDataResponse;
+import org.apache.inlong.manager.pojo.sink.DirtyDataTrendDetailResponse;
+import org.apache.inlong.manager.pojo.sink.DirtyDataTrendRequest;
 import org.apache.inlong.manager.pojo.sink.ParseFieldRequest;
 import org.apache.inlong.manager.pojo.sink.SinkField;
 import org.apache.inlong.manager.pojo.sink.SinkPageRequest;
 import org.apache.inlong.manager.pojo.sink.SinkRequest;
 import org.apache.inlong.manager.pojo.sink.StreamSink;
+import org.apache.inlong.manager.pojo.sink.TransformParseRequest;
 import org.apache.inlong.manager.pojo.user.LoginUserUtils;
+import org.apache.inlong.manager.service.dirtyData.DirtyQueryLogService;
 import org.apache.inlong.manager.service.operationlog.OperationLog;
 import org.apache.inlong.manager.service.sink.StreamSinkService;
 
@@ -48,6 +55,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Stream sink control layer
@@ -59,6 +67,8 @@ public class StreamSinkController {
 
     @Autowired
     private StreamSinkService sinkService;
+    @Autowired
+    private DirtyQueryLogService dirtyQueryLogService;
 
     @RequestMapping(value = "/sink/save", method = RequestMethod.POST)
     @OperationLog(operation = OperationType.CREATE, operationTarget = OperationTarget.SINK)
@@ -79,13 +89,19 @@ public class StreamSinkController {
     @OperationLog(operation = OperationType.GET, operationTarget = OperationTarget.SINK)
     @ApiImplicitParam(name = "id", dataTypeClass = Integer.class, required = true)
     public Response<StreamSink> get(@PathVariable Integer id) {
-        return Response.success(sinkService.get(id, LoginUserUtils.getLoginUser()));
+        return Response.success(sinkService.get(id));
     }
 
     @RequestMapping(value = "/sink/list", method = RequestMethod.POST)
     @ApiOperation(value = "List stream sinks by paginating")
     public Response<PageResult<? extends StreamSink>> listByCondition(@RequestBody SinkPageRequest request) {
         return Response.success(sinkService.listByCondition(request, LoginUserUtils.getLoginUser().getName()));
+    }
+
+    @RequestMapping(value = "/sink/listDetail", method = RequestMethod.POST)
+    @ApiOperation(value = "List stream sinks detail by paginating")
+    public Response<PageResult<Map<String, Object>>> listDetail(@RequestBody SinkPageRequest request) {
+        return Response.success(sinkService.listDetail(request, LoginUserUtils.getLoginUser().getName()));
     }
 
     @RequestMapping(value = "/sink/update", method = RequestMethod.POST)
@@ -136,4 +152,39 @@ public class StreamSinkController {
         return Response.success(sinkService.parseFields(parseFieldRequest));
     }
 
+    @RequestMapping(value = "/sink/listDirtyData", method = RequestMethod.POST)
+    @ApiOperation(value = "List stream sinks by paginating")
+    public Response<DirtyDataResponse> listDirtyData(@RequestBody DirtyDataRequest request) {
+        return Response.success(dirtyQueryLogService.listDirtyData(request));
+    }
+
+    @RequestMapping(value = "/sink/listDirtyDataTrend", method = RequestMethod.POST)
+    @ApiOperation(value = "List stream sinks by paginating")
+    public Response<DirtyDataResponse> listDirtyDataTrend(@RequestBody DirtyDataTrendRequest request) {
+        return Response.success(dirtyQueryLogService.listDirtyDataTrend(request));
+    }
+
+    @RequestMapping(value = "/sink/getDirtyData/{taskId}", method = RequestMethod.GET)
+    @ApiImplicitParam(name = "taskId", dataTypeClass = String.class, required = true)
+    public Response<List<DirtyDataDetailResponse>> getDirtyData(@PathVariable String taskId) {
+        return Response.success(dirtyQueryLogService.getDirtyData(taskId));
+    }
+
+    @RequestMapping(value = "/sink/getDirtyDataTrend/{taskId}", method = RequestMethod.GET)
+    @ApiImplicitParam(name = "taskId", dataTypeClass = String.class, required = true)
+    public Response<List<DirtyDataTrendDetailResponse>> getDirtyDataTrend(@PathVariable String taskId) {
+        return Response.success(dirtyQueryLogService.getDirtyDataTrend(taskId));
+    }
+
+    @RequestMapping(value = "/sink/SqlTaskStatus/{taskId}", method = RequestMethod.GET)
+    @ApiImplicitParam(name = "taskId", dataTypeClass = String.class, required = true)
+    public Response<String> SqlTaskStatus(@PathVariable String taskId) {
+        return Response.success(dirtyQueryLogService.getSqlTaskStatus(taskId));
+    }
+
+    @RequestMapping(value = "/sink/parseTransform", method = RequestMethod.POST)
+    @ApiOperation(value = "parse transform sql from data")
+    public Response<Map<String, Object>> parseTransform(@RequestBody TransformParseRequest request) {
+        return Response.success(sinkService.parseTransform(request));
+    }
 }

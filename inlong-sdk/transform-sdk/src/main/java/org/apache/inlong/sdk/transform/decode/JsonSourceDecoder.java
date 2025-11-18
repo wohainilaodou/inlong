@@ -18,23 +18,24 @@
 package org.apache.inlong.sdk.transform.decode;
 
 import org.apache.inlong.sdk.transform.pojo.JsonSourceInfo;
+import org.apache.inlong.sdk.transform.process.Context;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * JsonSourceDecoder
  * 
  */
-public class JsonSourceDecoder implements SourceDecoder {
+public class JsonSourceDecoder extends SourceDecoder<String> {
 
     protected JsonSourceInfo sourceInfo;
     private Charset srcCharset = Charset.defaultCharset();
@@ -65,59 +66,76 @@ public class JsonSourceDecoder implements SourceDecoder {
     /**
      * decode
      * @param srcBytes
-     * @param extParams
+     * @param context
      * @return
      */
     @Override
-    public SourceData decode(byte[] srcBytes, Map<String, Object> extParams) {
+    public SourceData decode(byte[] srcBytes, Context context) {
         String srcString = new String(srcBytes, srcCharset);
-        return this.decode(srcString, extParams);
+        return this.decode(srcString, context);
     }
 
     /**
      * decode
      * @param srcString
-     * @param extParams
+     * @param context
      * @return
      */
     @Override
-    public SourceData decode(String srcString, Map<String, Object> extParams) {
+    public SourceData decode(String srcString, Context context) {
         JsonObject root = gson.fromJson(srcString, JsonObject.class);
         JsonArray childRoot = null;
-        if (this.childNodes != null && this.childNodes.size() > 0) {
-            JsonElement current = root;
-            for (JsonNode node : childNodes) {
-                if (!current.isJsonObject()) {
-                    // error data
-                    return new JsonSourceData(root, childRoot);
-                }
-                JsonElement newElement = current.getAsJsonObject().get(node.getName());
-                if (newElement == null) {
-                    // error data
-                    return new JsonSourceData(root, childRoot);
-                }
-                if (!node.isArray()) {
-                    current = newElement;
-                } else {
-                    if (!newElement.isJsonArray()) {
-                        // error data
-                        return new JsonSourceData(root, childRoot);
-                    }
-                    JsonArray newArray = newElement.getAsJsonArray();
-                    if (node.getArrayIndex() >= newArray.size()) {
-                        // error data
-                        return new JsonSourceData(root, childRoot);
-                    }
-                    current = newArray.get(node.getArrayIndex());
-                }
-            }
-            if (!current.isJsonArray()) {
-                // error data
-                return new JsonSourceData(root, childRoot);
-            }
-            childRoot = current.getAsJsonArray();
+        if (CollectionUtils.isEmpty(childNodes)) {
+            return new JsonSourceData(root, null, context);
         }
-        SourceData sourceData = new JsonSourceData(root, childRoot);
-        return sourceData;
+        JsonElement current = root;
+        for (JsonNode node : childNodes) {
+            if (!current.isJsonObject()) {
+                // error data
+                return new JsonSourceData(root, null, context);
+            }
+            JsonElement newElement = current.getAsJsonObject().get(node.getName());
+            if (newElement == null) {
+                // error data
+                return new JsonSourceData(root, null, context);
+            }
+            // node is not array
+            if (!node.isArray()) {
+                current = newElement;
+                continue;
+            }
+            // node is an array
+            current = getElementFromArray(node, newElement);
+            if (current == null) {
+                // error data
+                return new JsonSourceData(root, null, context);
+            }
+        }
+        if (!current.isJsonArray()) {
+            // error data
+            return new JsonSourceData(root, null, context);
+        }
+        childRoot = current.getAsJsonArray();
+        return new JsonSourceData(root, childRoot, context);
+    }
+
+    private JsonElement getElementFromArray(JsonNode node, JsonElement curElement) {
+        if (node.getArrayIndices().isEmpty()) {
+            // error data
+            return null;
+        }
+        for (int index : node.getArrayIndices()) {
+            if (!curElement.isJsonArray()) {
+                // error data
+                return null;
+            }
+            JsonArray newArray = curElement.getAsJsonArray();
+            if (index >= newArray.size()) {
+                // error data
+                return null;
+            }
+            curElement = newArray.get(index);
+        }
+        return curElement;
     }
 }

@@ -165,7 +165,7 @@ public class PulsarMultiTopicsFetcher extends MultiTopicsFetcher {
                     .collect(Collectors.toList());
             Consumer<byte[]> consumer = pulsarClient.newConsumer(Schema.BYTES)
                     .topics(topicNames)
-                    .subscriptionName(context.getConfig().getSortTaskId())
+                    .subscriptionName(context.getConfig().getSubscription())
                     .subscriptionType(SubscriptionType.Shared)
                     .startMessageIdInclusive()
                     .subscriptionInitialPosition(position)
@@ -423,5 +423,17 @@ public class PulsarMultiTopicsFetcher extends MultiTopicsFetcher {
                 }
             }
         }
+    }
+
+    /**
+     * negativeAck Offset
+     *
+     * @param msgOffset String
+     */
+    @Override
+    public void negativeAck(String msgOffset) throws Exception {
+        this.sleepTime = TimeUnit.MILLISECONDS.convert(context.getConfig().getSendFailPauseConsumerMinutes(),
+                TimeUnit.MINUTES);
+        LOGGER.error("negativeAck,sleep {} minutes.", this.sleepTime);
     }
 }

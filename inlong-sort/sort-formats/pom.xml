@@ -23,7 +23,7 @@
     <parent>
         <groupId>org.apache.inlong</groupId>
         <artifactId>inlong-sort</artifactId>
-        <version>1.13.0-SNAPSHOT</version>
+        <version>2.4.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>sort-formats</artifactId>
@@ -249,7 +249,8 @@
             <id>v1.18</id>
             <modules>
                 <module>format-common</module>
-                <module>format-row/format-json-v1.18</module>
+                <module>format-row</module>
+                <module>format-rowdata</module>
             </modules>
             <dependencies>
                 <!--flink dependency-->

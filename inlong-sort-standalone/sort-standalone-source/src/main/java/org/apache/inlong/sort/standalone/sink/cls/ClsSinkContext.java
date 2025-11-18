@@ -17,25 +17,41 @@
 
 package org.apache.inlong.sort.standalone.sink.cls;
 
-import org.apache.inlong.common.pojo.sort.SortClusterConfig;
-import org.apache.inlong.common.pojo.sort.SortTaskConfig;
+import org.apache.inlong.common.pojo.sort.ClusterTagConfig;
+import org.apache.inlong.common.pojo.sort.TaskConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.DataFlowConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.sink.ClsSinkConfig;
+import org.apache.inlong.common.pojo.sort.dataflow.sink.SinkConfig;
 import org.apache.inlong.common.pojo.sort.node.ClsNodeConfig;
+import org.apache.inlong.common.pojo.sortstandalone.SortTaskConfig;
+import org.apache.inlong.sdk.transform.encode.MapSinkEncoder;
+import org.apache.inlong.sdk.transform.encode.SinkEncoderFactory;
+import org.apache.inlong.sdk.transform.pojo.FieldInfo;
+import org.apache.inlong.sdk.transform.pojo.MapSinkInfo;
+import org.apache.inlong.sdk.transform.process.TransformProcessor;
 import org.apache.inlong.sort.standalone.channel.ProfileEvent;
 import org.apache.inlong.sort.standalone.config.holder.CommonPropertiesHolder;
+import org.apache.inlong.sort.standalone.config.holder.SortClusterConfigHolder;
 import org.apache.inlong.sort.standalone.config.holder.v2.SortConfigHolder;
 import org.apache.inlong.sort.standalone.config.pojo.InlongId;
+import org.apache.inlong.sort.standalone.metrics.SortConfigMetricReporter;
 import org.apache.inlong.sort.standalone.metrics.SortMetricItem;
 import org.apache.inlong.sort.standalone.metrics.audit.AuditUtils;
-import org.apache.inlong.sort.standalone.sink.v2.SinkContext;
+import org.apache.inlong.sort.standalone.sink.SinkContext;
+import org.apache.inlong.sort.standalone.utils.Constants;
 import org.apache.inlong.sort.standalone.utils.InlongLoggerFactory;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
 import com.tencentcloudapi.cls.producer.AsyncProducerClient;
 import com.tencentcloudapi.cls.producer.AsyncProducerConfig;
 import com.tencentcloudapi.cls.producer.errors.ProducerException;
 import com.tencentcloudapi.cls.producer.util.NetworkUtils;
+import lombok.Getter;
 import org.apache.commons.lang3.ClassUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.flume.Channel;
 import org.apache.flume.Context;
 import org.slf4j.Logger;
@@ -76,6 +92,10 @@ public class ClsSinkContext extends SinkContext {
     private ClsNodeConfig clsNodeConfig;
     private ObjectMapper objectMapper;
 
+    // Map<Uid, TransformProcessor<String sourceType, Map<String, Object> sinkType>
+    @Getter
+    protected Map<String, TransformProcessor<String, Map<String, Object>>> transformMap;
+
     public ClsSinkContext(String sinkName, Context context, Channel channel) {
         super(sinkName, context, channel);
         this.clientMap = new ConcurrentHashMap<>();
@@ -97,20 +117,35 @@ public class ClsSinkContext extends SinkContext {
                 }
             });
 
-            SortTaskConfig newSortTaskConfig = SortConfigHolder.getTaskConfig(taskName);
-            if (newSortTaskConfig == null || newSortTaskConfig.equals(sortTaskConfig)) {
+            TaskConfig newTaskConfig = SortConfigHolder.getTaskConfig(taskName);
+            SortTaskConfig newSortTaskConfig = SortClusterConfigHolder.getTaskConfig(taskName);
+            if ((newTaskConfig == null || StringUtils.equals(this.taskConfigJson, gson.toJson(newTaskConfig)))
+                    && (newSortTaskConfig == null
+                            || StringUtils.equals(this.sortTaskConfigJson, gson.toJson(newSortTaskConfig)))) {
                 return;
             }
-            LOG.info("get new SortTaskConfig:taskName:{}:config:{}", taskName,
-                    objectMapper.writeValueAsString(newSortTaskConfig));
-            this.sortTaskConfig = newSortTaskConfig;
-            ClsNodeConfig requestNodeConfig = (ClsNodeConfig) sortTaskConfig.getNodeConfig();
-            if (clsNodeConfig == null || requestNodeConfig.getVersion() > clsNodeConfig.getVersion()) {
-                this.clsNodeConfig = requestNodeConfig;
+            LOG.info("get new SortTaskConfig:taskName:{}", taskName);
+            if (newTaskConfig != null) {
+                ClsNodeConfig requestNodeConfig = (ClsNodeConfig) newTaskConfig.getNodeConfig();
+                if (clsNodeConfig == null || requestNodeConfig.getVersion() > clsNodeConfig.getVersion()) {
+                    this.clsNodeConfig = requestNodeConfig;
+                }
             }
-            this.keywordMaxLength = DEFAULT_KEYWORD_MAX_LENGTH;
-            this.reloadIdParams();
-            this.reloadClients();
+
+            this.replaceConfig(newTaskConfig, newSortTaskConfig);
+
+            Map<String, ClsIdConfig> fromTaskConfig = reloadIdParamsFromTaskConfig(taskConfig, clsNodeConfig);
+            Map<String, ClsIdConfig> fromSortTaskConfig = reloadIdParamsFromSortTaskConfig(sortTaskConfig);
+            SortConfigMetricReporter.reportClusterDiff(clusterId, taskName, fromTaskConfig, fromSortTaskConfig);
+            Map<String, TransformProcessor<String, Map<String, Object>>> transformProcessor =
+                    reloadTransform(taskConfig);
+            if (unifiedConfiguration) {
+                idConfigMap = fromTaskConfig;
+                transformMap = transformProcessor;
+            } else {
+                idConfigMap = fromSortTaskConfig;
+            }
+            this.reloadClients(idConfigMap);
             this.reloadHandler();
         } catch (Exception e) {
             LOG.error(e.getMessage(), e);
@@ -134,10 +169,13 @@ public class ClsSinkContext extends SinkContext {
         }
     }
 
-    private void reloadIdParams() {
-        this.idConfigMap = this.sortTaskConfig.getClusters()
+    private Map<String, ClsIdConfig> reloadIdParamsFromTaskConfig(TaskConfig taskConfig, ClsNodeConfig clsNodeConfig) {
+        if (taskConfig == null) {
+            return new HashMap<>();
+        }
+        return taskConfig.getClusterTagConfigs()
                 .stream()
-                .map(SortClusterConfig::getDataFlowConfigs)
+                .map(ClusterTagConfig::getDataFlowConfigs)
                 .flatMap(Collection::stream)
                 .map(dataFlowConfig -> ClsIdConfig.create(dataFlowConfig, clsNodeConfig))
                 .collect(Collectors.toMap(
@@ -145,7 +183,25 @@ public class ClsSinkContext extends SinkContext {
                         v -> v));
     }
 
-    private void reloadClients() {
+    private Map<String, ClsIdConfig> reloadIdParamsFromSortTaskConfig(SortTaskConfig sortTaskConfig)
+            throws JsonProcessingException {
+        if (sortTaskConfig == null) {
+            return new HashMap<>();
+        }
+        List<Map<String, String>> idList = this.sortTaskConfig.getIdParams();
+        Map<String, ClsIdConfig> newIdConfigMap = new ConcurrentHashMap<>();
+        for (Map<String, String> idParam : idList) {
+            String inlongGroupId = idParam.get(Constants.INLONG_GROUP_ID);
+            String inlongStreamId = idParam.get(Constants.INLONG_STREAM_ID);
+            String uid = InlongId.generateUid(inlongGroupId, inlongStreamId);
+            String jsonIdConfig = objectMapper.writeValueAsString(idParam);
+            ClsIdConfig idConfig = objectMapper.readValue(jsonIdConfig, ClsIdConfig.class);
+            newIdConfigMap.put(uid, idConfig);
+        }
+        return newIdConfigMap;
+    }
+
+    private void reloadClients(Map<String, ClsIdConfig> idConfigMap) {
         // get update secretIds
         Map<String, ClsIdConfig> updateConfigMap = idConfigMap.values()
                 .stream()
@@ -182,6 +238,18 @@ public class ClsSinkContext extends SinkContext {
         }
         deletingClients.add(clientMap.remove(secretId));
     }
+    /**
+     * addSendMetric
+     *
+     * @param currentRecord
+     * @param topic
+     */
+    public void addSendMetric(ProfileEvent currentRecord, String topic) {
+        Map<String, String> dimensions = this.getDimensions(currentRecord, topic);
+        SortMetricItem metricItem = this.getMetricItemSet().findMetricItem(dimensions);
+        metricItem.sendCount.incrementAndGet();
+        metricItem.sendSize.addAndGet(currentRecord.getBody().length);
+    }
 
     public void addSendResultMetric(ProfileEvent currentRecord, String bid, boolean result, long sendTime) {
         Map<String, String> dimensions = this.getDimensions(currentRecord, bid);
@@ -203,6 +271,13 @@ public class ClsSinkContext extends SinkContext {
             metricItem.sendFailCount.incrementAndGet();
             metricItem.sendFailSize.addAndGet(currentRecord.getBody().length);
         }
+    }
+
+    public void addSendFilterMetric(ProfileEvent currentRecord, String bid) {
+        Map<String, String> dimensions = this.getDimensions(currentRecord, bid);
+        SortMetricItem metricItem = this.getMetricItemSet().findMetricItem(dimensions);
+        metricItem.sendFilterCount.incrementAndGet();
+        metricItem.sendFilterSize.addAndGet(currentRecord.getBody().length);
     }
 
     private Map<String, String> getDimensions(ProfileEvent currentRecord, String bid) {
@@ -233,5 +308,57 @@ public class ClsSinkContext extends SinkContext {
 
     public AsyncProducerClient getClient(String secretId) {
         return clientMap.get(secretId);
+    }
+
+    public TransformProcessor<String, Map<String, Object>> getTransformProcessor(String uid) {
+        return this.transformMap.get(uid);
+    }
+
+    private Map<String, TransformProcessor<String, Map<String, Object>>> reloadTransform(TaskConfig taskConfig) {
+        ImmutableMap.Builder<String, TransformProcessor<String, Map<String, Object>>> builder =
+                new ImmutableMap.Builder<>();
+
+        taskConfig.getClusterTagConfigs()
+                .stream()
+                .map(ClusterTagConfig::getDataFlowConfigs)
+                .flatMap(Collection::stream)
+                .forEach(flow -> {
+                    TransformProcessor<String, Map<String, Object>> transformProcessor =
+                            createTransform(flow);
+                    if (transformProcessor == null) {
+                        return;
+                    }
+                    builder.put(InlongId.generateUid(flow.getInlongGroupId(), flow.getInlongStreamId()),
+                            transformProcessor);
+                });
+
+        return builder.build();
+    }
+
+    private TransformProcessor<String, Map<String, Object>> createTransform(DataFlowConfig dataFlowConfig) {
+        try {
+            return TransformProcessor.create(
+                    createTransformConfig(dataFlowConfig),
+                    createSourceDecoder(dataFlowConfig.getSourceConfig()),
+                    createClsSinkEncoder(dataFlowConfig.getSinkConfig()));
+        } catch (Exception e) {
+            LOG.error("failed to reload transform of dataflow={}, ex={}", dataFlowConfig.getDataflowId(),
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private MapSinkEncoder createClsSinkEncoder(SinkConfig sinkConfig) {
+        if (!(sinkConfig instanceof ClsSinkConfig)) {
+            throw new IllegalArgumentException("sinkInfo must be an instance of ClsSinkConfig");
+        }
+        ClsSinkConfig clsSinkConfig = (ClsSinkConfig) sinkConfig;
+        List<FieldInfo> fieldInfos = clsSinkConfig.getFieldConfigs()
+                .stream()
+                .map(config -> new FieldInfo(config.getName(), deriveTypeConverter(config.getFormatInfo())))
+                .collect(Collectors.toList());
+
+        MapSinkInfo sinkInfo = new MapSinkInfo(sinkConfig.getEncodingType(), fieldInfos);
+        return SinkEncoderFactory.createMapEncoder(sinkInfo);
     }
 }

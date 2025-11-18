@@ -19,17 +19,21 @@ package org.apache.inlong.manager.service.transform;
 
 import org.apache.inlong.manager.common.consts.InlongConstants;
 import org.apache.inlong.manager.common.enums.ErrorCodeEnum;
-import org.apache.inlong.manager.common.enums.GroupStatus;
 import org.apache.inlong.manager.common.exceptions.BusinessException;
 import org.apache.inlong.manager.common.util.CommonBeanUtils;
 import org.apache.inlong.manager.common.util.Preconditions;
 import org.apache.inlong.manager.dao.entity.InlongGroupEntity;
+import org.apache.inlong.manager.dao.entity.StreamSinkFieldEntity;
 import org.apache.inlong.manager.dao.entity.StreamTransformEntity;
 import org.apache.inlong.manager.dao.entity.StreamTransformFieldEntity;
 import org.apache.inlong.manager.dao.mapper.InlongGroupEntityMapper;
+import org.apache.inlong.manager.dao.mapper.StreamSinkFieldEntityMapper;
 import org.apache.inlong.manager.dao.mapper.StreamTransformEntityMapper;
 import org.apache.inlong.manager.dao.mapper.StreamTransformFieldEntityMapper;
 import org.apache.inlong.manager.pojo.common.PageResult;
+import org.apache.inlong.manager.pojo.sink.SinkField;
+import org.apache.inlong.manager.pojo.sink.SinkRequest;
+import org.apache.inlong.manager.pojo.sink.StreamSink;
 import org.apache.inlong.manager.pojo.stream.StreamField;
 import org.apache.inlong.manager.pojo.transform.DeleteTransformRequest;
 import org.apache.inlong.manager.pojo.transform.TransformPageRequest;
@@ -37,9 +41,11 @@ import org.apache.inlong.manager.pojo.transform.TransformRequest;
 import org.apache.inlong.manager.pojo.transform.TransformResponse;
 import org.apache.inlong.manager.pojo.user.UserInfo;
 import org.apache.inlong.manager.service.group.GroupCheckService;
+import org.apache.inlong.manager.service.sink.StreamSinkService;
 import org.apache.inlong.manager.service.user.UserService;
 
 import com.github.pagehelper.PageHelper;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -54,6 +60,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -71,7 +78,11 @@ public class StreamTransformServiceImpl implements StreamTransformService {
     @Autowired
     protected StreamTransformFieldEntityMapper transformFieldMapper;
     @Autowired
+    private StreamSinkFieldEntityMapper sinkFieldEntityMapper;
+    @Autowired
     protected GroupCheckService groupCheckService;
+    @Autowired
+    private StreamSinkService sinkService;
     @Autowired
     protected UserService userService;
 
@@ -99,40 +110,7 @@ public class StreamTransformServiceImpl implements StreamTransformService {
         transformEntity.setModifier(operator);
         transformMapper.insert(transformEntity);
         saveFieldOpt(transformEntity, request.getFieldList());
-        return transformEntity.getId();
-    }
-
-    @Override
-    @Transactional(rollbackFor = Throwable.class, propagation = Propagation.REQUIRES_NEW)
-    public Integer save(TransformRequest request, UserInfo opInfo) {
-        // Check if it can be added
-        InlongGroupEntity groupEntity = groupMapper.selectByGroupId(request.getInlongGroupId());
-        if (groupEntity == null) {
-            throw new BusinessException(ErrorCodeEnum.GROUP_NOT_FOUND,
-                    String.format("InlongGroup does not exist with InlongGroupId=%s", request.getInlongGroupId()));
-        }
-        // check inlong group status
-        GroupStatus status = GroupStatus.forCode(groupEntity.getStatus());
-        if (GroupStatus.notAllowedUpdate(status)) {
-            throw new BusinessException(ErrorCodeEnum.OPT_NOT_ALLOWED_BY_STATUS,
-                    String.format(ErrorCodeEnum.OPT_NOT_ALLOWED_BY_STATUS.getMessage(), status));
-        }
-        // Check if the record to be added exists
-        List<StreamTransformEntity> transformEntities =
-                transformMapper.selectByRelatedId(request.getInlongGroupId(),
-                        request.getInlongStreamId(), request.getTransformName());
-        if (CollectionUtils.isNotEmpty(transformEntities)) {
-            throw new BusinessException(ErrorCodeEnum.RECORD_DUPLICATE,
-                    String.format("stream transform already exists with groupId=%s, streamId=%s, transformName=%s",
-                            request.getInlongGroupId(), request.getInlongStreamId(), request.getTransformName()));
-        }
-        // add record
-        StreamTransformEntity transformEntity =
-                CommonBeanUtils.copyProperties(request, StreamTransformEntity::new);
-        transformEntity.setCreator(opInfo.getName());
-        transformEntity.setModifier(opInfo.getName());
-        transformMapper.insert(transformEntity);
-        saveFieldOpt(transformEntity, request.getFieldList());
+        saveTransformSql(request, operator);
         return transformEntity.getId();
     }
 
@@ -196,23 +174,6 @@ public class StreamTransformServiceImpl implements StreamTransformService {
     }
 
     @Override
-    public List<TransformResponse> listTransform(String groupId, String streamId, UserInfo opInfo) {
-        // Check if it can be added
-        InlongGroupEntity groupEntity = groupMapper.selectByGroupId(groupId);
-        if (groupEntity == null) {
-            throw new BusinessException(ErrorCodeEnum.GROUP_NOT_FOUND,
-                    String.format("InlongGroup does not exist with InlongGroupId=%s", groupId));
-        }
-        // query result
-        List<StreamTransformEntity> entityList = transformMapper.selectByRelatedId(groupId, streamId, null);
-        if (CollectionUtils.isEmpty(entityList)) {
-            return Collections.emptyList();
-        }
-        // get transform data
-        return getTransformResponse(entityList);
-    }
-
-    @Override
     @Transactional(rollbackFor = Throwable.class, propagation = Propagation.REQUIRES_NEW)
     public Boolean update(TransformRequest request, String operator) {
         LOGGER.info("begin to update transform info: {}", request);
@@ -235,38 +196,7 @@ public class StreamTransformServiceImpl implements StreamTransformService {
             throw new BusinessException(ErrorCodeEnum.CONFIG_EXPIRED);
         }
         updateFieldOpt(transformEntity, request.getFieldList());
-        return true;
-    }
-
-    @Override
-    @Transactional(rollbackFor = Throwable.class, propagation = Propagation.REQUIRES_NEW)
-    public Boolean update(TransformRequest request, UserInfo opInfo) {
-        // check request and parameters
-        this.chkUnmodifiableParams(request);
-        // Check if it can be added
-        InlongGroupEntity groupEntity = groupMapper.selectByGroupId(request.getInlongGroupId());
-        if (groupEntity == null) {
-            throw new BusinessException(ErrorCodeEnum.GROUP_NOT_FOUND,
-                    String.format("InlongGroup does not exist with InlongGroupId=%s", request.getInlongGroupId()));
-        }
-        // check inlong group status
-        GroupStatus status = GroupStatus.forCode(groupEntity.getStatus());
-        if (GroupStatus.notAllowedUpdate(status)) {
-            throw new BusinessException(ErrorCodeEnum.OPT_NOT_ALLOWED_BY_STATUS,
-                    String.format(ErrorCodeEnum.OPT_NOT_ALLOWED_BY_STATUS.getMessage(), status));
-        }
-        // update record
-        StreamTransformEntity transformEntity =
-                CommonBeanUtils.copyProperties(request, StreamTransformEntity::new);
-        transformEntity.setModifier(opInfo.getName());
-        int rowCount = transformMapper.updateByIdSelective(transformEntity);
-        if (rowCount != InlongConstants.AFFECTED_ONE_ROW) {
-            throw new BusinessException(ErrorCodeEnum.CONFIG_EXPIRED,
-                    String.format("transform has already updated with groupId=%s, streamId=%s, name=%s, curVersion=%s",
-                            request.getInlongGroupId(), request.getInlongStreamId(),
-                            request.getTransformName(), request.getVersion()));
-        }
-        updateFieldOpt(transformEntity, request.getFieldList());
+        saveTransformSql(request, operator);
         return true;
     }
 
@@ -300,44 +230,6 @@ public class StreamTransformServiceImpl implements StreamTransformService {
             }
         }
         LOGGER.info("success to logic delete transform for request={} by user={}", request, operator);
-        return true;
-    }
-
-    @Override
-    @Transactional(rollbackFor = Throwable.class, propagation = Propagation.REQUIRES_NEW)
-    public Boolean delete(DeleteTransformRequest request, UserInfo opInfo) {
-        // Check if it can be added
-        InlongGroupEntity groupEntity = groupMapper.selectByGroupId(request.getInlongGroupId());
-        if (groupEntity == null) {
-            throw new BusinessException(ErrorCodeEnum.GROUP_NOT_FOUND,
-                    String.format("InlongGroup does not exist with InlongGroupId=%s", request.getInlongGroupId()));
-        }
-        // check inlong group status
-        GroupStatus status = GroupStatus.forCode(groupEntity.getStatus());
-        if (GroupStatus.notAllowedUpdate(status)) {
-            throw new BusinessException(ErrorCodeEnum.OPT_NOT_ALLOWED_BY_STATUS,
-                    String.format(ErrorCodeEnum.OPT_NOT_ALLOWED_BY_STATUS.getMessage(), status));
-        }
-        // query records
-        List<StreamTransformEntity> entityList =
-                transformMapper.selectByRelatedId(request.getInlongGroupId(),
-                        request.getInlongStreamId(), request.getTransformName());
-        if (CollectionUtils.isNotEmpty(entityList)) {
-            for (StreamTransformEntity entity : entityList) {
-                Integer id = entity.getId();
-                entity.setIsDeleted(id);
-                entity.setModifier(opInfo.getName());
-                int rowCount = transformMapper.updateByIdSelective(entity);
-                if (rowCount != InlongConstants.AFFECTED_ONE_ROW) {
-                    throw new BusinessException(ErrorCodeEnum.CONFIG_EXPIRED,
-                            String.format(
-                                    "transform has already updated with groupId=%s, streamId=%s, name=%s, curVersion=%s",
-                                    entity.getInlongGroupId(), entity.getInlongStreamId(),
-                                    entity.getTransformName(), entity.getVersion()));
-                }
-                transformFieldMapper.deleteAll(id);
-            }
-        }
         return true;
     }
 
@@ -462,5 +354,46 @@ public class StreamTransformServiceImpl implements StreamTransformService {
 
         transformFieldMapper.insertAll(entityList);
         LOGGER.debug("success to save transform fields");
+    }
+
+    @Override
+    public String getTransformSql(StreamSink sink) {
+        List<TransformResponse> transformResponseList =
+                listTransform(sink.getInlongGroupId(), sink.getInlongStreamId());
+        List<TransformResponse> filterList = transformResponseList.stream()
+                .filter(v -> {
+                    Set<String> postNodes = Sets.newHashSet(v.getPostNodeNames().split(InlongConstants.COMMA));
+                    return postNodes.contains(sink.getSinkName());
+                }).collect(
+                        Collectors.toList());
+        List<StreamSinkFieldEntity> sinkFieldEntityList = sinkFieldEntityMapper.selectBySinkId(sink.getId());
+        return TransformSqlParser.parse(filterList,
+                CommonBeanUtils.copyListProperties(sinkFieldEntityList, SinkField::new));
+    }
+
+    @Override
+    public String parseTransformSql(TransformRequest request, String operator) {
+        List<SinkField> sinkFields = CommonBeanUtils.copyListProperties(request.getFieldList(), SinkField::new);
+        sinkFields.forEach(v -> v.setSourceFieldName(v.getOriginFieldName()));
+        List<TransformResponse> filterList =
+                Collections.singletonList(CommonBeanUtils.copyProperties(request, TransformResponse::new));
+        return TransformSqlParser.parse(filterList,
+                CommonBeanUtils.copyListProperties(sinkFields, SinkField::new));
+    }
+
+    private void saveTransformSql(TransformRequest request, String operator) {
+        LOGGER.info("begin to save transform sql: {}", request);
+        String groupId = request.getInlongGroupId();
+        String streamId = request.getInlongStreamId();
+        InlongGroupEntity groupEntity = groupMapper.selectByGroupId(groupId);
+        if (InlongConstants.STANDARD_MODE.equals(groupEntity.getInlongGroupMode())) {
+            Set<String> postNodes = Sets.newHashSet(request.getPostNodeNames().split(InlongConstants.COMMA));
+            List<StreamSink> sinkList = sinkService.listSink(groupId, streamId);
+            sinkList.stream().filter(v -> postNodes.contains(v.getSinkName())).forEach(v -> {
+                SinkRequest sinkRequest = v.genSinkRequest();
+                sinkRequest.setTransformSql(getTransformSql(v));
+                sinkService.update(sinkRequest, operator);
+            });
+        }
     }
 }

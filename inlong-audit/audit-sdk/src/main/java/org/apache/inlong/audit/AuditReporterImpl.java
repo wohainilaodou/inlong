@@ -17,8 +17,10 @@
 
 package org.apache.inlong.audit;
 
+import org.apache.inlong.audit.entity.AuditComponent;
 import org.apache.inlong.audit.entity.AuditInformation;
 import org.apache.inlong.audit.entity.AuditMetric;
+import org.apache.inlong.audit.entity.CdcType;
 import org.apache.inlong.audit.entity.FlowType;
 import org.apache.inlong.audit.loader.SocketAddressListLoader;
 import org.apache.inlong.audit.protocol.AuditApi;
@@ -31,6 +33,7 @@ import org.apache.inlong.audit.util.AuditValues;
 import org.apache.inlong.audit.util.Config;
 import org.apache.inlong.audit.util.RequestIdUtils;
 import org.apache.inlong.audit.util.StatInfo;
+import org.apache.inlong.audit.utils.NamedThreadFactory;
 
 import org.apache.commons.lang3.ClassUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -75,16 +78,18 @@ public class AuditReporterImpl implements Serializable {
     private final ConcurrentHashMap<Long, HashSet<String>> expiredKeyList = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Long> flushTime = new ConcurrentHashMap<>();
     private final Config config = new Config();
-    private final ScheduledExecutorService timeoutExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService timerExecutor =
+            Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("inlong-audit-flush"));
     private int packageId = 1;
     private int dataId = 0;
-    private boolean initialized = false;
+    private volatile boolean initialized = false;
     private SenderManager manager;
     private AtomicInteger flushStat = new AtomicInteger(0);
     private AuditConfig auditConfig = null;
     private SocketAddressListLoader loader = null;
     private int flushStatThreshold = 100;
     private boolean autoFlush = true;
+    private boolean enableDebug = false;
 
     private AuditMetric auditMetric = new AuditMetric();
 
@@ -108,6 +113,14 @@ public class AuditReporterImpl implements Serializable {
     }
 
     /**
+     * Debug mode supports printing audit details in the log
+     * @param enableDebug
+     */
+    public void setEnableDebug(boolean enableDebug) {
+        this.enableDebug = enableDebug;
+    }
+
+    /**
      * Init
      */
     private void init() {
@@ -115,7 +128,7 @@ public class AuditReporterImpl implements Serializable {
             return;
         }
         config.init();
-        timeoutExecutor.scheduleWithFixedDelay(new Runnable() {
+        timerExecutor.scheduleWithFixedDelay(new Runnable() {
 
             @Override
             public void run() {
@@ -189,18 +202,32 @@ public class AuditReporterImpl implements Serializable {
      * Set AuditProxy from the ip
      */
     public void setAuditProxy(HashSet<String> ipPortList) {
-        try {
-            GLOBAL_LOCK.lockInterruptibly();
-            if (!initialized) {
-                init();
-                initialized = true;
-            }
-            ProxyManager.getInstance().setAuditProxy(ipPortList);
-        } catch (InterruptedException e) {
-            LOGGER.error(e.getMessage());
-        } finally {
-            GLOBAL_LOCK.unlock();
+        checkInitStatus();
+        ProxyManager.getInstance().setAuditProxy(ipPortList);
+    }
+
+    /**
+     * Set local IP
+     * @param localIP
+     */
+    public void setLocalIP(String localIP) {
+        config.setLocalIP(localIP);
+    }
+
+    /**
+     * Set AuditProxy from the manager host
+     */
+    public void setAuditProxy(AuditComponent component, String managerHost, String secretId, String secretKey) {
+        checkInitStatus();
+        ProxyManager.getInstance().setManagerConfig(component, managerHost, secretId, secretKey);
+    }
+
+    private synchronized void checkInitStatus() {
+        if (initialized) {
+            return;
         }
+        init();
+        initialized = true;
     }
 
     /**
@@ -287,6 +314,22 @@ public class AuditReporterImpl implements Serializable {
     }
 
     /**
+     * Asynchronously flush audit data
+     * @param isolateKey
+     */
+    public synchronized void asyncFlush(long isolateKey) {
+        LOGGER.info("Async flush audit by isolate key: {} ", isolateKey);
+        Runnable task = () -> {
+            try {
+                flush(isolateKey);
+            } catch (Exception e) {
+                LOGGER.error("Async flush audit by isolate key: {}, has exception: ", isolateKey, e);
+            }
+        };
+        timerExecutor.schedule(task, 0, TimeUnit.MILLISECONDS);
+    }
+
+    /**
      * Flush audit data by default audit version
      */
     public synchronized void flush() {
@@ -299,37 +342,46 @@ public class AuditReporterImpl implements Serializable {
     public synchronized void flush(long isolateKey) {
         if (flushTime.putIfAbsent(isolateKey, System.currentTimeMillis()) != null
                 || flushStat.addAndGet(1) > flushStatThreshold) {
+            LOGGER.info("Skip audit flush isolate key: {}, last flush time: {}, count: {}", isolateKey,
+                    flushTime.get(isolateKey), flushStat.get());
             return;
         }
         long startTime = System.currentTimeMillis();
-        LOGGER.info("Audit flush isolate key {} ", isolateKey);
-        manager.checkFailedData();
-        resetStat();
+        LOGGER.info("Audit flush isolate key: {} ", isolateKey);
 
-        summaryExpiredStatMap(isolateKey);
+        try {
+            manager.checkFailedData();
+            resetStat();
 
-        Iterator<Map.Entry<Long, ConcurrentHashMap<String, StatInfo>>> iterator = this.preStatMap.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, ConcurrentHashMap<String, StatInfo>> entry = iterator.next();
-            if (entry.getValue().isEmpty()) {
-                LOGGER.info("Remove the key of pre stat map: {},isolate key: {} ", entry.getKey(), isolateKey);
-                iterator.remove();
-                continue;
+            summaryExpiredStatMap(isolateKey);
+
+            Iterator<Map.Entry<Long, ConcurrentHashMap<String, StatInfo>>> iterator =
+                    this.preStatMap.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<Long, ConcurrentHashMap<String, StatInfo>> entry = iterator.next();
+                if (entry.getValue().isEmpty()) {
+                    LOGGER.info("Remove the key of pre stat map: {},isolate key: {} ", entry.getKey(), isolateKey);
+                    iterator.remove();
+                    continue;
+                }
+                if (entry.getKey() > isolateKey) {
+                    continue;
+                }
+                summaryPreStatMap(entry.getKey(), entry.getValue());
+                send(entry.getKey());
             }
-            if (entry.getKey() > isolateKey) {
-                continue;
-            }
-            summaryPreStatMap(entry.getKey(), entry.getValue());
-            send(entry.getKey());
 
+            clearExpiredKey(isolateKey);
+        } catch (Exception exception) {
+            LOGGER.error("Flush audit has exception!", exception);
+        } finally {
+            manager.closeSocket();
         }
 
-        clearExpiredKey(isolateKey);
-
-        manager.closeSocket();
-
-        LOGGER.info("Success report {} package, Failed report {} package, total {} message, cost: {} ms",
+        LOGGER.info(
+                "Success report {} package, Failed report {} package, total {} message, memory size {}, cost: {} ms",
                 auditMetric.getSuccessPack(), auditMetric.getFailedPack(), auditMetric.getTotalMsg(),
+                auditMetric.getMemorySize(),
                 System.currentTimeMillis() - startTime);
 
         auditMetric.reset();
@@ -422,7 +474,7 @@ public class AuditReporterImpl implements Serializable {
         while (iterator.hasNext()) {
             Map.Entry<Long, HashSet<String>> entry = iterator.next();
             if (entry.getValue().isEmpty()) {
-                LOGGER.info("Remove the key of expired key list: {},isolate key: {}", entry.getKey(), isolateKey);
+                LOGGER.info("Remove the key of expired key list: {}, isolate key: {}", entry.getKey(), isolateKey);
                 iterator.remove();
                 continue;
             }
@@ -468,12 +520,25 @@ public class AuditReporterImpl implements Serializable {
         for (Map.Entry<String, StatInfo> entry : summaryStatMap.get(isolateKey).entrySet()) {
             // Entry key order: logTime inlongGroupID inlongStreamID auditID auditTag auditVersion
             String[] keyArray = entry.getKey().split(FIELD_SEPARATORS);
-            long logTime = Long.parseLong(keyArray[0]) * PERIOD;
+            if (keyArray.length < 6) {
+                LOGGER.error("Number of keys {} <6", keyArray.length);
+                continue;
+            }
+
+            long logTime;
+            long auditVersion;
+            try {
+                logTime = Long.parseLong(keyArray[0]) * PERIOD;
+                auditVersion = Long.parseLong(keyArray[5]);
+            } catch (NumberFormatException numberFormatException) {
+                LOGGER.error("Failed to parse long from string", numberFormatException);
+                continue;
+            }
+
             String inlongGroupID = keyArray[1];
             String inlongStreamID = keyArray[2];
             String auditID = keyArray[3];
             String auditTag = keyArray[4];
-            long auditVersion = Long.parseLong(keyArray[5]);
             StatInfo value = entry.getValue();
             AuditApi.AuditMessageBody msgBody = AuditApi.AuditMessageBody.newBuilder()
                     .setLogTs(logTime)
@@ -488,20 +553,25 @@ public class AuditReporterImpl implements Serializable {
                     .build();
             requestBuild.addMsgBody(msgBody);
 
+            auditMetric.addMemorySize(msgBody.toByteArray().length);
+
             if (dataId++ >= BATCH_NUM) {
                 dataId = 0;
                 packageId++;
-                sendData(requestBuild);
+                sendData(requestBuild, isolateKey);
             }
         }
 
         if (requestBuild.getMsgBodyCount() > 0) {
-            sendData(requestBuild);
+            sendData(requestBuild, isolateKey);
         }
         summaryStatMap.get(isolateKey).clear();
     }
 
-    private void sendData(AuditApi.AuditRequest.Builder requestBuild) {
+    private void sendData(AuditApi.AuditRequest.Builder requestBuild, long isolateKey) {
+        if (enableDebug) {
+            LOGGER.info("Send audit data by isolate key: {}, data: {}", isolateKey, requestBuild);
+        }
         requestBuild.setRequestId(RequestIdUtils.nextRequestId());
         sendByBaseCommand(requestBuild.build());
         auditMetric.addTotalMsg(requestBuild.getMsgBodyCount());
@@ -517,6 +587,7 @@ public class AuditReporterImpl implements Serializable {
         flushTime.forEach((key, value) -> {
             if ((currentTime - value) > PERIOD) {
                 flushTime.remove(key);
+                LOGGER.info("Remove audit flush limitation. isolate key: {}, flush time: {}", key, value);
             }
         });
     }
@@ -584,11 +655,57 @@ public class AuditReporterImpl implements Serializable {
         return AuditManagerUtils.getAllAuditInformation();
     }
 
+    public List<AuditInformation> getAllMetricInformation() {
+        return AuditManagerUtils.getAllMetricInformation();
+    }
+
     public List<AuditInformation> getAllAuditInformation(String auditType) {
         return AuditManagerUtils.getAllAuditInformation(auditType);
     }
 
     public int getStartAuditIdForMetric() {
         return AuditManagerUtils.getStartAuditIdForMetric();
+    }
+
+    public void setManagerTimeout(int timeoutMs) {
+
+        ProxyManager.getInstance().setManagerTimeout(timeoutMs);
+    }
+
+    public void setAutoUpdateAuditProxy() {
+        ProxyManager.getInstance().setAutoUpdateAuditProxy();
+    }
+
+    public void setUpdateInterval(int updateInterval) {
+        ProxyManager.getInstance().setUpdateInterval(updateInterval);
+    }
+
+    public void setMaxGlobalAuditMemory(long maxGlobalAuditMemory) {
+        SenderManager.setMaxGlobalAuditMemory(maxGlobalAuditMemory);
+    }
+
+    public int getCdcId(String auditType, FlowType flowType, CdcType cdcType) {
+        return AuditManagerUtils.getCdcId(auditType, flowType, cdcType);
+    }
+
+    public List<AuditInformation> getAllCdcIdInformation() {
+        return AuditManagerUtils.getAllCdcIdInformation();
+    }
+
+    public List<AuditInformation> getAllCdcIdInformation(String auditType) {
+        return AuditManagerUtils.getAllCdcIdInformation(auditType);
+    }
+
+    public List<AuditInformation> getAllCdcIdInformation(String auditType, FlowType flowType) {
+        return AuditManagerUtils.getAllCdcIdInformation(auditType, flowType);
+    }
+
+    public AuditInformation getCdcIdInformation(String auditType, FlowType flowType, CdcType cdcType) {
+        return AuditManagerUtils.getCdcIdInformation(auditType, flowType, cdcType);
+    }
+
+    public void shutdown() {
+        ProxyManager.getInstance().shutdown();
+        timerExecutor.shutdown();
     }
 }

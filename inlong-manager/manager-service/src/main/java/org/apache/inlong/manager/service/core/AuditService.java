@@ -18,8 +18,8 @@
 package org.apache.inlong.manager.service.core;
 
 import org.apache.inlong.audit.entity.AuditInformation;
+import org.apache.inlong.audit.entity.AuditProxy;
 import org.apache.inlong.common.enums.IndicatorType;
-import org.apache.inlong.manager.pojo.audit.AuditProxyResponse.AuditProxy;
 import org.apache.inlong.manager.pojo.audit.AuditRequest;
 import org.apache.inlong.manager.pojo.audit.AuditVO;
 
@@ -46,7 +46,7 @@ public interface AuditService {
      */
     List<AuditVO> listAll(AuditRequest request) throws Exception;
 
-    List<AuditInformation> getAuditBases();
+    List<AuditInformation> getAuditBases(Boolean isMetric);
 
     /**
      * Get audit id by type and indicator type.
@@ -70,5 +70,7 @@ public interface AuditService {
      * @return audit proxy list
      */
     List<AuditProxy> getAuditProxy(String component) throws Exception;
+
+    List<AuditInformation> getCdcAuditInfoList(String type, IndicatorType indicatorType);
 
 }

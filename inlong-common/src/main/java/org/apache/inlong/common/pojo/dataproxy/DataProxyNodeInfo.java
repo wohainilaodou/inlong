@@ -49,4 +49,5 @@ public class DataProxyNodeInfo {
      * Node last report load
      */
     private Integer nodeLoad;
+
 }

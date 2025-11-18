@@ -17,6 +17,8 @@
 
 package org.apache.inlong.manager.service.source;
 
+import org.apache.inlong.common.pojo.agent.DataConfig;
+import org.apache.inlong.manager.dao.entity.InlongStreamEntity;
 import org.apache.inlong.manager.dao.entity.StreamSourceEntity;
 import org.apache.inlong.manager.pojo.common.PageResult;
 import org.apache.inlong.manager.pojo.group.InlongGroupInfo;
@@ -50,11 +52,11 @@ public interface StreamSourceOperator {
      * Save the source info.
      *
      * @param request request of source
-     * @param groupStatus the belongs group status
+     * @param streamStatus the belongs stream status
      * @param operator name of operator
      * @return source id after saving
      */
-    Integer saveOpt(SourceRequest request, Integer groupStatus, String operator);
+    Integer saveOpt(SourceRequest request, Integer streamStatus, String operator);
 
     /**
      * Get source info by the given entity.
@@ -135,5 +137,17 @@ public interface StreamSourceOperator {
      * @return source id after saving
      */
     Integer addDataAddTask(DataAddTaskRequest request, String operator);
+
+    /**
+     * Update the agent task config info.
+     *
+     * @param request source request
+     * @param operator name of the operator
+     */
+    void updateAgentTaskConfig(SourceRequest request, String operator);
+
+    default String updateDataConfig(String extParams, InlongStreamEntity streamEntity, DataConfig dataConfig) {
+        return extParams;
+    }
 
 }

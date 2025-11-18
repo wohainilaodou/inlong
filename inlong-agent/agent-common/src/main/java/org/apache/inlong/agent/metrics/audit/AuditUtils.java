@@ -17,19 +17,22 @@
 
 package org.apache.inlong.agent.metrics.audit;
 
-import org.apache.inlong.agent.conf.AgentConfiguration;
+import org.apache.inlong.agent.conf.AbstractConfiguration;
+import org.apache.inlong.agent.constant.AgentConstants;
 import org.apache.inlong.audit.AuditOperator;
-import org.apache.inlong.audit.util.AuditConfig;
+import org.apache.inlong.audit.entity.AuditComponent;
 
-import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
 import java.util.HashSet;
 
 import static org.apache.inlong.agent.constant.AgentConstants.AUDIT_ENABLE;
-import static org.apache.inlong.agent.constant.AgentConstants.AUDIT_KEY_PROXYS;
+import static org.apache.inlong.agent.constant.AgentConstants.AUDIT_PROXY_ADDRESS;
 import static org.apache.inlong.agent.constant.AgentConstants.DEFAULT_AUDIT_ENABLE;
-import static org.apache.inlong.agent.constant.AgentConstants.DEFAULT_AUDIT_PROXYS;
+import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_MANAGER_ADDR;
+import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_MANAGER_AUTH_SECRET_ID;
+import static org.apache.inlong.agent.constant.FetcherConstants.AGENT_MANAGER_AUTH_SECRET_KEY;
 import static org.apache.inlong.audit.consts.ConfigConstants.DEFAULT_AUDIT_TAG;
 import static org.apache.inlong.common.constant.Constants.DEFAULT_AUDIT_VERSION;
 
@@ -38,10 +41,8 @@ import static org.apache.inlong.common.constant.Constants.DEFAULT_AUDIT_VERSION;
  */
 public class AuditUtils {
 
-    public static final String AUDIT_KEY_FILE_PATH = "audit.filePath";
-    public static final String AUDIT_DEFAULT_FILE_PATH = "/data/inlong/audit/";
-    public static final String AUDIT_KEY_MAX_CACHE_ROWS = "audit.maxCacheRows";
-    public static final int AUDIT_DEFAULT_MAX_CACHE_ROWS = 2000000;
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuditUtils.class);
+    public static final int AGENT_ISOLATE_KEY = 1;
     public static int AUDIT_ID_AGENT_READ_SUCCESS = 3;
     public static int AUDIT_ID_AGENT_SEND_SUCCESS = 4;
     public static int AUDIT_ID_AGENT_READ_FAILED = 524291;
@@ -71,24 +72,18 @@ public class AuditUtils {
     /**
      * Init audit config
      */
-    public static void initAudit() {
-        AgentConfiguration conf = AgentConfiguration.getAgentConf();
+    public static void initAudit(AbstractConfiguration conf) {
         IS_AUDIT = conf.getBoolean(AUDIT_ENABLE, DEFAULT_AUDIT_ENABLE);
         if (IS_AUDIT) {
-            // AuditProxy
-            String strIpPorts = conf.get(AUDIT_KEY_PROXYS, DEFAULT_AUDIT_PROXYS);
-            HashSet<String> proxySet = new HashSet<>();
-            if (!StringUtils.isBlank(strIpPorts)) {
-                String[] ipPorts = strIpPorts.split("\\s+");
-                Collections.addAll(proxySet, ipPorts);
+            if (conf.hasKey(AUDIT_PROXY_ADDRESS)) {
+                HashSet<String> address = new HashSet<>();
+                address.add(conf.get(AUDIT_PROXY_ADDRESS));
+                AuditOperator.getInstance().setAuditProxy(address);
+            } else {
+                AuditOperator.getInstance().setAuditProxy(AuditComponent.AGENT, conf.get(AGENT_MANAGER_ADDR),
+                        conf.get(AGENT_MANAGER_AUTH_SECRET_ID), conf.get(AGENT_MANAGER_AUTH_SECRET_KEY));
             }
-            AuditOperator.getInstance().setAuditProxy(proxySet);
-
-            // AuditConfig
-            String filePath = conf.get(AUDIT_KEY_FILE_PATH, AUDIT_DEFAULT_FILE_PATH);
-            int maxCacheRow = conf.getInt(AUDIT_KEY_MAX_CACHE_ROWS, AUDIT_DEFAULT_MAX_CACHE_ROWS);
-            AuditConfig auditConfig = new AuditConfig(filePath, maxCacheRow);
-            AuditOperator.getInstance().setAuditConfig(auditConfig);
+            AuditOperator.getInstance().setLocalIP(conf.get(AgentConstants.AGENT_LOCAL_IP));
         }
     }
 
@@ -100,8 +95,17 @@ public class AuditUtils {
         if (!IS_AUDIT) {
             return;
         }
-        AuditOperator.getInstance()
-                .add(auditID, DEFAULT_AUDIT_TAG, inlongGroupId, inlongStreamId, logTime, count, size, version);
+        if (inlongGroupId == null || inlongStreamId == null) {
+            LOGGER.error("invalid args inlongGroupId: {}, inlongStreamId: {}", inlongGroupId, inlongStreamId);
+            return;
+        }
+        try {
+            AuditOperator.getInstance()
+                    .add(auditID, DEFAULT_AUDIT_TAG, inlongGroupId, inlongStreamId, logTime, count, size, version);
+        } catch (Throwable e) {
+            LOGGER.error("call audit add inlongGroupId: {}, inlongStreamId: {}, auditID {}, error", inlongGroupId,
+                    inlongStreamId, auditID, e);
+        }
     }
 
     public static void add(int auditID, String inlongGroupId, String inlongStreamId,
@@ -116,6 +120,6 @@ public class AuditUtils {
         if (!IS_AUDIT) {
             return;
         }
-        AuditOperator.getInstance().flush();
+        AuditOperator.getInstance().flush(AGENT_ISOLATE_KEY);
     }
 }

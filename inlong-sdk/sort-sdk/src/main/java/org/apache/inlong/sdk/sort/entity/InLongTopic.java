@@ -27,7 +27,28 @@ public class InLongTopic {
     private int partitionId;
     // pulsar,kafka,tube
     private String topicType;
+    private String startConsumeTime;
+    private String stopConsumeTime;
     private Map<String, Object> properties;
+    private String groupId;
+    private String streamId;
+    private String dataFlowId;
+
+    public void setStopConsumeTime(String stopConsumeTime) {
+        this.stopConsumeTime = stopConsumeTime;
+    }
+
+    public void setStartConsumeTime(String startConsumeTime) {
+        this.startConsumeTime = startConsumeTime;
+    }
+
+    public String getStartConsumeTime() {
+        return startConsumeTime;
+    }
+
+    public String getStopConsumeTime() {
+        return stopConsumeTime;
+    }
 
     public String getTopic() {
         return topic;
@@ -67,6 +88,54 @@ public class InLongTopic {
 
     public void setProperties(Map<String, Object> properties) {
         this.properties = properties;
+    }
+
+    /**
+     * get groupId
+     * @return the groupId
+     */
+    public String getGroupId() {
+        return groupId;
+    }
+
+    /**
+     * set groupId
+     * @param groupId the groupId to set
+     */
+    public void setGroupId(String groupId) {
+        this.groupId = groupId;
+    }
+
+    /**
+     * get streamId
+     * @return the streamId
+     */
+    public String getStreamId() {
+        return streamId;
+    }
+
+    /**
+     * set streamId
+     * @param streamId the streamId to set
+     */
+    public void setStreamId(String streamId) {
+        this.streamId = streamId;
+    }
+
+    /**
+     * get dataFlowId
+     * @return the dataFlowId
+     */
+    public String getDataFlowId() {
+        return dataFlowId;
+    }
+
+    /**
+     * set dataFlowId
+     * @param dataFlowId the dataFlowId to set
+     */
+    public void setDataFlowId(String dataFlowId) {
+        this.dataFlowId = dataFlowId;
     }
 
     @Override
